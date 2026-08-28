@@ -53,12 +53,16 @@ jobs:
         if: steps.build.outputs.publish == 'true'
         run: |
           python - <<'PY'
+          import gzip
           import json
           from pathlib import Path
 
+          def load_json_gz(path):
+              return json.loads(gzip.decompress(path.read_bytes()).decode("utf-8"))
+
           root = Path("build/national")
           index = json.loads((root / "index.json").read_text(encoding="utf-8"))
-          stations = json.loads((root / "stations.json").read_text(encoding="utf-8"))
+          stations = load_json_gz(root / "stations.json.gz")
           departements = json.loads((root / "departements.json").read_text(encoding="utf-8"))
 
           assert index["status"] == "ok"
@@ -71,9 +75,9 @@ jobs:
           sample = stations["stations"][0]
           assert sample["years"], f"aucune année pour la station échantillon {sample['num_poste']}"
           sample_year = sample["years"][-1]
-          sample_path = root / "stations" / sample["num_poste"] / f"{sample_year}.json"
+          sample_path = root / "stations" / sample["num_poste"] / f"{sample_year}.json.gz"
           assert sample_path.is_file(), f"fichier année manquant : {sample_path}"
-          sample_data = json.loads(sample_path.read_text(encoding="utf-8"))
+          sample_data = load_json_gz(sample_path)
           assert sample_data["days"], "série de jours vide pour la station/année échantillon"
 
           print(
