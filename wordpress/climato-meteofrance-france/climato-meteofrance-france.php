@@ -3,7 +3,7 @@
  * Plugin Name: Climatologie mensuelle Météo-France — Tableaux
  * Plugin URI: https://github.com/alertesmeteo-hub/climato
  * Description: Tableau de climatologie mensuelle (relevés jour par jour et statistiques du mois) par station officielle Météo-France, pour la France métropolitaine — historique complet depuis l'ouverture de chaque station.
- * Version: 1.2.0
+ * Version: 1.3.0
  * Author: Alertes Météo Hub
  * Requires at least: 5.8
  * Requires PHP: 7.4
@@ -14,7 +14,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CLIMATO_VERSION', '1.2.0');
+define('CLIMATO_VERSION', '1.3.0');
 define('CLIMATO_RELEASE_DATE', '28/08/2026');
 define('CLIMATO_OPTION_BASE_URL', 'climato_national_data_base_url');
 define(
@@ -129,8 +129,9 @@ function climato_render_settings_page() {
         <p><code>[climato_meteo departement="28" station="28198001"]</code> : ouvre directement sur une station précise.</p>
         <p><code>[climato_meteo departement="06" annee="2025" mois="8"]</code> : ouvre sur un département, une année et un mois précis.</p>
         <p>Le visiteur peut ensuite changer de département, de station, de mois et d’année depuis le tableau — jusqu’à l’ouverture de la station (certaines stations parisiennes remontent à 1816).</p>
+        <p>Les stations fermées depuis longtemps sont masquées par défaut (case « Afficher aussi les stations fermées » pour les retrouver). Quand Météo-France publie une fiche climatologique pour la station, les normales 1991-2020 et les records sont disponibles via « Normales 1991-2020 et records » et « Comparer avec les normales ».</p>
         <h2>Source des données</h2>
-        <p>Météo-France, jeu de données publiques « Données climatologiques de base - quotidiennes » (data.gouv.fr, Licence Ouverte / Etalab 2.0), historique complet publié par Météo-France pour chaque station. Chaque année n’est téléchargée par le visiteur que lorsqu’il la consulte, sous forme compressée (décompression native dans le navigateur — nécessite un navigateur récent : Chrome/Edge, Firefox ou Safari à jour).</p>
+        <p>Météo-France, jeux de données publiques « Données climatologiques de base - quotidiennes » et « Fiches climatologiques » (data.gouv.fr, Licence Ouverte / Etalab 2.0), historique complet publié par Météo-France pour chaque station. Chaque année n’est téléchargée par le visiteur que lorsqu’il la consulte, sous forme compressée (décompression native dans le navigateur — nécessite un navigateur récent : Chrome/Edge, Firefox ou Safari à jour).</p>
     </div>
     <?php
 }
@@ -241,6 +242,22 @@ function climato_render_shortcode($atts) {
             </div>
         </div>
 
+        <div class="clm-links">
+            <label class="clm-checkbox">
+                <input type="checkbox" data-clm-toggle-closed>
+                <span>Afficher aussi les stations fermées</span>
+            </label>
+            <button type="button" class="clm-link-button" data-clm-normales-toggle aria-expanded="false">
+                [ Normales 1991-2020 et records ]
+            </button>
+            <label class="clm-checkbox">
+                <input type="checkbox" data-clm-compare-toggle>
+                <span>[ Comparer avec les normales ]</span>
+            </label>
+        </div>
+
+        <div class="clm-normales-panel" data-clm-normales-panel hidden></div>
+
         <div class="clm-status" data-clm-status hidden></div>
 
         <div class="clm-table-wrap">
@@ -261,6 +278,8 @@ function climato_render_shortcode($atts) {
             </table>
         </div>
         <p class="clm-legend">— Donnée manquante</p>
+
+        <div class="clm-compare-block" data-clm-compare-block hidden></div>
 
         <div class="clm-stats">
             <h3>Statistiques du mois</h3>

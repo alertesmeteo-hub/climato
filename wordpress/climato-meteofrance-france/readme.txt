@@ -3,7 +3,7 @@ Contributors: alertesmeteo
 Tags: meteo, climatologie, meteo-france, station, tableau, avada
 Requires at least: 5.8
 Requires PHP: 7.4
-Stable tag: 1.2.0
+Stable tag: 1.3.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -16,7 +16,9 @@ Le shortcode [climato_meteo] affiche dans un seul module :
 * le relevé quotidien du mois choisi pour une station Météo-France (Tmax, Tmin, précipitations 24h, ensoleillement) ;
 * une ligne de moyennes/totaux du mois ;
 * les statistiques du mois (jours de chaleur, forte/très forte chaleur, nuit tropicale, gelée, forte/très forte gelée, sans dégel, jours de pluie) ;
-* un sélecteur de département, de station, de mois et d'année couvrant tout l'historique de la station (certaines stations parisiennes remontent à 1816), avec navigation mois précédent/suivant.
+* un sélecteur de département, de station, de mois et d'année couvrant tout l'historique de la station (certaines stations parisiennes remontent à 1816), avec navigation mois précédent/suivant ;
+* les stations fermées sont masquées par défaut (case à cocher pour les réafficher) ;
+* les normales 1991-2020 et records mensuels, quand la station en publie (« Normales 1991-2020 et records »), et une comparaison du mois affiché à la normale (« Comparer avec les normales »).
 
 Les données proviennent des fichiers publics Météo-France « Données climatologiques de base - quotidiennes » (data.gouv.fr, Licence Ouverte / Etalab 2.0) : tout l'historique publié par Météo-France pour chaque station, pas seulement les années récentes. Chaque année n'est téléchargée par le visiteur que lorsqu'il la consulte, pour rester rapide malgré l'historique complet. Comparaison aux normales 1991-2020 pas encore incluse.
 
@@ -30,6 +32,11 @@ Les données proviennent des fichiers publics Météo-France « Données climato
 Exemple : [climato_meteo departement="28" station="28198001"]
 
 == Changelog ==
+
+= 1.3.0 =
+* Les stations fermées depuis longtemps sont masquées par défaut dans le sélecteur, avec une case pour les réafficher (regroupées dans un groupe « Stations fermées »).
+* Ajout des normales 1991-2020 et records mensuels (« Normales 1991-2020 et records »), sourcés depuis les fiches climatologiques Météo-France quand la station en publie une.
+* Ajout de la comparaison du mois affiché à la normale (« Comparer avec les normales »), avec écart en plus/moins.
 
 = 1.2.0 =
 * Les fichiers de données volumineux (séries annuelles par station, catalogue des stations) sont désormais publiés compressés gzip pour rester sous le seuil d'alerte de taille de dépôt GitHub. Décompression native côté navigateur, aucune dépendance ajoutée. Nécessite un navigateur récent (Chrome/Edge, Firefox ou Safari à jour).

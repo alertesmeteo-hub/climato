@@ -111,16 +111,25 @@
         var elTableBody = root.querySelector("[data-clm-table-body]");
         var elTableFoot = root.querySelector("[data-clm-table-foot]");
         var elStatsList = root.querySelector("[data-clm-stats-list]");
+        var elShowClosed = root.querySelector("[data-clm-toggle-closed]");
+        var elNormalesToggle = root.querySelector("[data-clm-normales-toggle]");
+        var elNormalesPanel = root.querySelector("[data-clm-normales-panel]");
+        var elCompareToggle = root.querySelector("[data-clm-compare-toggle]");
+        var elCompareBlock = root.querySelector("[data-clm-compare-block]");
 
         var departements = {};
         var stationsByDept = {};
         var stationsByCode = {};
         var currentStationMeta = null;
         var yearCache = {};
+        var normalesCache = {};
         var yearRequestToken = 0;
         var currentYm = { year: 0, month: 0 };
         var minYm = null;
         var maxYm = null;
+        var showClosedStations = false;
+        var showNormalesPanel = false;
+        var compareWithNormales = false;
 
         function showStatus(message) {
             if (!message) {
@@ -166,21 +175,63 @@
             });
         }
 
+        function makeStationOption(station) {
+            var opt = document.createElement("option");
+            opt.value = station.num_poste;
+            opt.textContent = station.nom;
+            return opt;
+        }
+
+        // Les stations fermées depuis longtemps restent dans le catalogue
+        // (pour l'historique) mais sont masquées par défaut — sauf si la
+        // station demandée en fait justement partie, ou si le département
+        // n'a plus aucune station active.
         function populateStationSelect(deptCode, selectCode) {
-            var list = (stationsByDept[deptCode] || []).slice().sort(function (a, b) {
+            var all = (stationsByDept[deptCode] || []).slice().sort(function (a, b) {
                 return a.nom.localeCompare(b.nom, "fr");
             });
+            var active = all.filter(function (s) { return s.active; });
+
+            var mustShowClosed = !active.length;
+            if (selectCode) {
+                var target = all.filter(function (s) { return s.num_poste === selectCode; })[0];
+                if (target && !target.active) {
+                    mustShowClosed = true;
+                }
+            }
+            if (mustShowClosed && !showClosedStations) {
+                showClosedStations = true;
+                if (elShowClosed) { elShowClosed.checked = true; }
+            }
+
             elStation.innerHTML = "";
-            list.forEach(function (station) {
-                var opt = document.createElement("option");
-                opt.value = station.num_poste;
-                opt.textContent = station.nom;
-                elStation.appendChild(opt);
-            });
-            if (selectCode && stationsByDept[deptCode].some(function (s) { return s.num_poste === selectCode; })) {
+            if (showClosedStations) {
+                var closed = all.filter(function (s) { return !s.active; });
+                if (active.length) {
+                    var groupActive = document.createElement("optgroup");
+                    groupActive.label = "Stations actives";
+                    active.forEach(function (s) { groupActive.appendChild(makeStationOption(s)); });
+                    elStation.appendChild(groupActive);
+                }
+                if (closed.length) {
+                    var groupClosed = document.createElement("optgroup");
+                    groupClosed.label = "Stations fermées";
+                    closed.forEach(function (s) {
+                        var opt = makeStationOption(s);
+                        opt.textContent += " (jusqu'en " + s.last_date.slice(0, 4) + ")";
+                        groupClosed.appendChild(opt);
+                    });
+                    elStation.appendChild(groupClosed);
+                }
+            } else {
+                active.forEach(function (s) { elStation.appendChild(makeStationOption(s)); });
+            }
+
+            var pool = showClosedStations ? all : active;
+            if (selectCode && pool.some(function (s) { return s.num_poste === selectCode; })) {
                 elStation.value = selectCode;
-            } else if (list.length) {
-                elStation.value = list[0].num_poste;
+            } else if (pool.length) {
+                elStation.value = pool[0].num_poste;
             }
         }
 
@@ -215,6 +266,104 @@
                 showStatus("Erreur de chargement de l'année " + year + " : " + error.message);
                 return yearCache[year];
             });
+        }
+
+        // Toutes les stations n'ont pas de fiche climatologique (normales
+        // 1991-2020 et records) — seules les stations de référence en
+        // publient une. On ne tente même pas la requête sinon.
+        function ensureNormalesLoaded(numPoste) {
+            if (Object.prototype.hasOwnProperty.call(normalesCache, numPoste)) {
+                return Promise.resolve(normalesCache[numPoste]);
+            }
+            var meta = stationsByCode[numPoste];
+            if (!meta || !meta.has_normales) {
+                normalesCache[numPoste] = null;
+                return Promise.resolve(null);
+            }
+            return fetchJson(baseUrl + "/stations/" + numPoste + "/normales.json").then(function (data) {
+                normalesCache[numPoste] = data;
+                return data;
+            }).catch(function () {
+                normalesCache[numPoste] = null;
+                return null;
+            });
+        }
+
+        function fmtRecordDate(dayYear, monthIndex) {
+            if (!dayYear) { return ""; }
+            var parts = dayYear.split("-");
+            if (parts.length !== 2) { return ""; }
+            var day = parseInt(parts[0], 10);
+            if (!day || !parts[1]) { return ""; }
+            return day + " " + MONTH_NAMES[monthIndex] + " " + parts[1];
+        }
+
+        function renderNormalesPanel() {
+            if (!elNormalesPanel) { return; }
+            if (!currentStationMeta) { return; }
+            var data = normalesCache[currentStationMeta.num_poste];
+            if (!data) {
+                elNormalesPanel.innerHTML = '<p class="clm-empty">Normales et records non disponibles pour cette station.</p>';
+                return;
+            }
+            var rows = data.months.map(function (m) {
+                var txRecord = fmtValue(m.tx_record, " °C");
+                var txDate = fmtRecordDate(m.tx_record_date, m.mois - 1);
+                var tnRecord = fmtValue(m.tn_record, " °C");
+                var tnDate = fmtRecordDate(m.tn_record_date, m.mois - 1);
+                return "<tr><td>" + MONTH_NAMES[m.mois - 1] + "</td>" +
+                    "<td>" + fmtValue(m.tx_moy, " °C") + "</td>" +
+                    "<td>" + fmtValue(m.tn_moy, " °C") + "</td>" +
+                    "<td>" + txRecord + (txDate ? " <small>(" + txDate + ")</small>" : "") + "</td>" +
+                    "<td>" + tnRecord + (tnDate ? " <small>(" + tnDate + ")</small>" : "") + "</td>" +
+                    "<td>" + fmtValue(m.rr_moy, " mm") + "</td>" +
+                    "<td>" + fmtValue(m.insol_moy, " h") + "</td></tr>";
+            }).join("");
+            elNormalesPanel.innerHTML =
+                '<p class="clm-normales-periode">Normales ' + data.periode_normales + ', records sur toute la période de mesure.</p>' +
+                '<div class="clm-table-wrap"><table class="clm-table clm-normales-table"><thead><tr>' +
+                "<th>Mois</th><th>Tmax moy.</th><th>Tmin moy.</th><th>Record Tmax</th><th>Record Tmin</th><th>Pluie moy.</th><th>Ensoleil. moy.</th>" +
+                "</tr></thead><tbody>" + rows + "</tbody></table></div>";
+        }
+
+        function renderCompareBlock(sums, counts) {
+            if (!elCompareBlock) { return; }
+            if (!compareWithNormales) {
+                elCompareBlock.hidden = true;
+                return;
+            }
+            elCompareBlock.hidden = false;
+            var numPoste = currentStationMeta.num_poste;
+            var normales = normalesCache[numPoste];
+            if (!normales) {
+                elCompareBlock.innerHTML = '<p class="clm-empty">Normales non disponibles pour cette station.</p>';
+                return;
+            }
+            var monthData = normales.months[currentYm.month - 1];
+            var actualTx = counts.tx ? sums.tx / counts.tx : null;
+            var actualTn = counts.tn ? sums.tn / counts.tn : null;
+            var actualRr = counts.rr ? sums.rr : null;
+            var actualInsol = counts.insol ? sums.insol : null;
+
+            function deltaRow(label, actual, normal, suffix) {
+                var deltaText = "";
+                if (actual !== null && normal !== null && normal !== undefined) {
+                    var delta = Math.round((actual - normal) * 10) / 10;
+                    deltaText = ", écart : " + (delta > 0 ? "+" : "") + fmtValue(delta, suffix);
+                }
+                return "<li><span class=\"clm-stat-label\">" + label + "</span>" +
+                    "<span class=\"clm-stat-value\">" + fmtValue(actual, suffix) +
+                    " <small>(normale : " + fmtValue(normal, suffix) + deltaText + ")</small></span></li>";
+            }
+
+            elCompareBlock.innerHTML =
+                "<h4>Comparaison à la normale " + normales.periode_normales + " (" + MONTH_NAMES[currentYm.month - 1] + ")</h4>" +
+                '<ul class="clm-stats-list">' +
+                deltaRow("Température max. moyenne", actualTx, monthData.tx_moy, " °C") +
+                deltaRow("Température min. moyenne", actualTn, monthData.tn_moy, " °C") +
+                deltaRow("Précipitations", actualRr, monthData.rr_moy, " mm") +
+                deltaRow("Ensoleillement", actualInsol, monthData.insol_moy, " h") +
+                "</ul>";
         }
 
         function renderMonth() {
@@ -286,6 +435,7 @@
             }).join("");
 
             showStatus(anyData ? "" : "Aucune donnée disponible pour ce mois.");
+            renderCompareBlock(sums, counts);
         }
 
         function goToYm(target) {
@@ -293,7 +443,11 @@
             currentYm = target;
             var year = target.year;
             var token = ++yearRequestToken;
-            ensureYearLoaded(year).then(function () {
+            var tasks = [ensureYearLoaded(year)];
+            if (compareWithNormales && currentStationMeta) {
+                tasks.push(ensureNormalesLoaded(currentStationMeta.num_poste));
+            }
+            Promise.all(tasks).then(function () {
                 if (token !== yearRequestToken) {
                     return; // une navigation plus récente a pris le dessus
                 }
@@ -323,6 +477,10 @@
             }
             renderEmptyTable("Chargement…");
             goToYm(target);
+
+            if (showNormalesPanel) {
+                ensureNormalesLoaded(meta.num_poste).then(renderNormalesPanel);
+            }
         }
 
         function onDepartementChange() {
@@ -354,12 +512,46 @@
             goToYm({ year: year, month: month });
         }
 
+        function onToggleClosedChange() {
+            showClosedStations = elShowClosed.checked;
+            var previous = elStation.value;
+            populateStationSelect(elDept.value, previous);
+            if (elStation.value !== previous) {
+                var preferred = currentYm.year ? currentYm : null;
+                loadStation(elStation.value, preferred);
+            }
+        }
+
+        function onNormalesToggleClick() {
+            showNormalesPanel = !showNormalesPanel;
+            elNormalesPanel.hidden = !showNormalesPanel;
+            elNormalesToggle.setAttribute("aria-expanded", showNormalesPanel ? "true" : "false");
+            if (showNormalesPanel && currentStationMeta) {
+                elNormalesPanel.innerHTML = '<p class="clm-empty">Chargement…</p>';
+                ensureNormalesLoaded(currentStationMeta.num_poste).then(renderNormalesPanel);
+            }
+        }
+
+        function onCompareToggleChange() {
+            compareWithNormales = elCompareToggle.checked;
+            if (compareWithNormales && currentStationMeta) {
+                ensureNormalesLoaded(currentStationMeta.num_poste).then(function () {
+                    renderMonth();
+                });
+            } else if (elCompareBlock) {
+                elCompareBlock.hidden = true;
+            }
+        }
+
         elDept.addEventListener("change", onDepartementChange);
         elStation.addEventListener("change", onStationChange);
         elMonth.addEventListener("change", onMonthOrYearChange);
         elYear.addEventListener("change", onMonthOrYearChange);
         elPrev.addEventListener("click", function () { shiftMonth(-1); });
         elNext.addEventListener("click", function () { shiftMonth(1); });
+        if (elShowClosed) { elShowClosed.addEventListener("change", onToggleClosedChange); }
+        if (elNormalesToggle) { elNormalesToggle.addEventListener("click", onNormalesToggleClick); }
+        if (elCompareToggle) { elCompareToggle.addEventListener("change", onCompareToggleChange); }
 
         populateMonthSelect();
         showStatus("Chargement des stations…");

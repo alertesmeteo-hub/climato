@@ -25,6 +25,13 @@ le seuil d'alerte de taille de dépôt GitHub (~5 Go). Le site les décompresse
 côté navigateur avec l'API native DecompressionStream (aucune dépendance JS
 ajoutée). « departements.json » et « index.json » restent en clair : trop
 petits pour que ça vaille la peine.
+
+Chaque station est aussi marquée « active » ou non (dernier relevé récent ou
+non), pour que le site masque par défaut les stations fermées. Quand une
+« fiche climatologique » Météo-France existe pour la station (jeu de données
+séparé « fiches-climatologiques », normales 1991-2020 et records), elle est
+récupérée et republiée en « stations/<num_poste>/normales.json » — toutes
+les stations n'en ont pas (seules les stations de référence en publient une).
 """
 
 from __future__ import annotations
@@ -39,21 +46,45 @@ import re
 import sys
 import time
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
 import requests
 
 LOGGER = logging.getLogger("climato.france")
-PIPELINE_VERSION = "1.2.0"
-USER_AGENT = "alertes-meteo.com/climato-meteofrance-france/1.2.0"
+PIPELINE_VERSION = "1.3.0"
+USER_AGENT = "alertes-meteo.com/climato-meteofrance-france/1.3.0"
 
 DATASET_API_URL = (
     "https://www.data.gouv.fr/api/1/datasets/6569b51ae64326786e4e8e1a/"
 )
 DATASET_PAGE = (
     "https://www.data.gouv.fr/datasets/donnees-climatologiques-de-base-quotidiennes"
+)
+
+FICHES_DATASET_API_URL = (
+    "https://www.data.gouv.fr/api/1/datasets/684c2d56f3861808c0a5d465/"
+)
+FICHES_DATASET_PAGE = "https://www.data.gouv.fr/datasets/fiches-climatologiques"
+FICHE_RESOURCE_RE = re.compile(r"^Fiche_station_(?P<num_poste>\d{8})\.data$")
+
+# Nombre de jours sans nouveau relevé au-delà duquel une station est
+# considérée fermée (masquée par défaut côté site).
+ACTIVE_THRESHOLD_DAYS = 730
+
+# Sections reconnues dans une fiche climatologique (titre en minuscules,
+# recherché en sous-chaîne — les fiches n'ont pas toutes les mêmes sections,
+# certaines stations ne mesurent ni l'insolation ni le rayonnement).
+FICHE_SECTION_MARKERS = (
+    ("tx_moy", "température maximale (moyenne"),
+    ("tm_moy", "température moyenne (moyenne"),
+    ("tn_moy", "température minimale (moyenne"),
+    ("tx_record", "la température la plus élevée"),
+    ("tn_record", "la température la plus basse"),
+    ("rr_record", "hauteur quotidienne maximale"),
+    ("rr_moy", "hauteur moyenne mensuelle"),
+    ("insol_moy", "durée d'insolation"),
 )
 
 # Départements de la France métropolitaine. Le jeu de données Météo-France
@@ -185,6 +216,110 @@ def build_resource_index(dataset: dict) -> dict[str, dict[str, list[str]]]:
     return resolved
 
 
+def build_fiches_index(dataset: dict) -> dict[str, str]:
+    """Associe à chaque poste (s'il en publie une) l'URL de sa fiche
+    climatologique « .data » (normales 1991-2020 et records)."""
+    index: dict[str, str] = {}
+    for resource in dataset.get("resources", []):
+        title = (resource.get("title") or "").strip()
+        match = FICHE_RESOURCE_RE.match(title)
+        url = resource.get("url")
+        if not match or not url:
+            continue
+        index[match.group("num_poste")] = url
+    return index
+
+
+def parse_fiche_climatologique(text: str) -> dict[str, Any] | None:
+    """Extrait les normales/records mensuels d'une fiche climatologique brute.
+
+    Le fichier n'est pas un CSV propre : c'est un rapport texte, blocs séparés
+    par des lignes vides, chaque bloc commençant par un titre de section, une
+    éventuelle ligne de note entre parenthèses, une ligne de valeurs (12 mois
+    + année), et pour les records une ligne « Date » supplémentaire.
+    """
+    lines = text.replace("\r\n", "\n").split("\n")
+    blocks: list[list[str]] = []
+    current: list[str] = []
+    for line in lines:
+        if line.strip() == "":
+            if current:
+                blocks.append(current)
+                current = []
+        else:
+            current.append(line)
+    if current:
+        blocks.append(current)
+
+    values: dict[str, list[float | None]] = {}
+    dates: dict[str, list[str | None]] = {}
+
+    for block in blocks:
+        title_line = block[0].strip().rstrip(";").lower()
+        matched_key = next(
+            (key for key, marker in FICHE_SECTION_MARKERS if marker in title_line),
+            None,
+        )
+        if not matched_key:
+            continue
+
+        value_line: str | None = None
+        date_line: str | None = None
+        for line in block[1:]:
+            stripped = line.strip()
+            if stripped.startswith("Date"):
+                date_line = line
+            elif not stripped.startswith("(") and ";" in line:
+                value_line = line
+
+        if value_line:
+            cells = [c.strip() for c in value_line.split(";")]
+            values[matched_key] = [to_float(c) for c in cells[1:13]]
+        if date_line:
+            cells = [c.strip() for c in date_line.split(";")]
+            dates[matched_key] = [c or None for c in cells[1:13]]
+
+    if not values:
+        return None
+    return {"values": values, "dates": dates}
+
+
+def build_normales_payload(num_poste: str, parsed: dict[str, Any]) -> dict[str, Any]:
+    values = parsed["values"]
+    dates = parsed["dates"]
+
+    def at(key: str, index: int) -> Any:
+        series = values.get(key)
+        return series[index] if series and index < len(series) else None
+
+    def date_at(key: str, index: int) -> Any:
+        series = dates.get(key)
+        return series[index] if series and index < len(series) else None
+
+    months = []
+    for i in range(12):
+        months.append({
+            "mois": i + 1,
+            "tx_moy": at("tx_moy", i),
+            "tm_moy": at("tm_moy", i),
+            "tn_moy": at("tn_moy", i),
+            "tx_record": at("tx_record", i),
+            "tx_record_date": date_at("tx_record", i),
+            "tn_record": at("tn_record", i),
+            "tn_record_date": date_at("tn_record", i),
+            "rr_moy": at("rr_moy", i),
+            "rr_record": at("rr_record", i),
+            "rr_record_date": date_at("rr_record", i),
+            "insol_moy": at("insol_moy", i),
+        })
+
+    return {
+        "num_poste": num_poste,
+        "periode_normales": "1991-2020",
+        "months": months,
+    }
+
+
 def to_float(value: str | None) -> float | None:
     if value is None:
         return None
@@ -314,6 +449,42 @@ def write_station_years(stations_dir: Path, num_poste: str, days: list[dict[str,
     return sorted(by_year.keys())
 
 
+def fetch_and_write_normales(
+    session: requests.Session, stations_dir: Path, num_poste: str, fiches_index: dict[str, str]
+) -> bool:
+    """Récupère et republie la fiche climatologique (normales 1991-2020 et
+    records) d'une station si Météo-France en publie une. Retourne True si un
+    fichier normales.json a été écrit."""
+    url = fiches_index.get(num_poste)
+    if not url:
+        return False
+    try:
+        response = fetch_with_retries(session, url)
+        text = response.content.decode("utf-8", errors="replace")
+        parsed = parse_fiche_climatologique(text)
+    except requests.RequestException as exc:
+        LOGGER.warning("Fiche climatologique %s indisponible (%s), ignorée.", num_poste, exc)
+        return False
+    if parsed is None:
+        return False
+    write_json(stations_dir / num_poste / "normales.json", build_normales_payload(num_poste, parsed))
+    return True
+
+
+def compute_active_flags(station_catalog: list[dict[str, Any]], overall_last_date: str | None) -> None:
+    """Marque chaque station « active » (relevé récent) ou fermée, en place.
+    Une station fermée depuis longtemps reste dans le catalogue (pour
+    l'historique) mais le site la masque par défaut."""
+    if not overall_last_date:
+        for entry in station_catalog:
+            entry["active"] = True
+        return
+    reference = date.fromisoformat(overall_last_date)
+    threshold = (reference - timedelta(days=ACTIVE_THRESHOLD_DAYS)).isoformat()
+    for entry in station_catalog:
+        entry["active"] = entry["last_date"] >= threshold
+
+
 def already_published(current_metadata_url: str | None, last_date: str | None, station_count: int) -> bool:
     if not current_metadata_url or not last_date:
         return False
@@ -351,6 +522,15 @@ def main() -> int:
     dataset = fetch_json(session, DATASET_API_URL)
     resource_index = build_resource_index(dataset)
 
+    LOGGER.info("Récupération du catalogue des fiches climatologiques (normales/records)…")
+    try:
+        fiches_dataset = fetch_json(session, FICHES_DATASET_API_URL)
+        fiches_index = build_fiches_index(fiches_dataset)
+        LOGGER.info("%s fiches climatologiques disponibles.", len(fiches_index))
+    except requests.RequestException as exc:
+        LOGGER.warning("Fiches climatologiques indisponibles (%s) — normales non publiées cette fois.", exc)
+        fiches_index = {}
+
     output_dir: Path = args.output_dir
     stations_dir = output_dir / "stations"
 
@@ -378,6 +558,7 @@ def main() -> int:
             last_dates.append(last_date)
 
             years = write_station_years(stations_dir, num_poste, days)
+            has_normales = fetch_and_write_normales(session, stations_dir, num_poste, fiches_index)
 
             station_catalog.append({
                 "num_poste": num_poste,
@@ -389,6 +570,7 @@ def main() -> int:
                 "first_date": first_date,
                 "last_date": last_date,
                 "years": years,
+                "has_normales": has_normales,
             })
 
         # Libère la mémoire du département avant de passer au suivant : avec
@@ -403,6 +585,7 @@ def main() -> int:
 
     overall_last_date = max(last_dates) if last_dates else None
     overall_first_date = min(first_dates) if first_dates else None
+    compute_active_flags(station_catalog, overall_last_date)
 
     if already_published(args.current_metadata_url, overall_last_date, len(station_catalog)):
         LOGGER.info("Aucune nouvelle journée depuis la dernière publication, on s'arrête ici.")
@@ -432,6 +615,8 @@ def main() -> int:
             "coverage": {
                 "departments": processed,
                 "stations": len(station_catalog),
+                "stations_active": sum(1 for s in station_catalog if s["active"]),
+                "stations_with_normales": sum(1 for s in station_catalog if s["has_normales"]),
             },
             "period": {
                 "first_date": overall_first_date,
@@ -445,8 +630,11 @@ def main() -> int:
     )
 
     LOGGER.info(
-        "Publication prête : %s stations sur %s départements (%s → %s).",
-        len(station_catalog), processed, overall_first_date, overall_last_date,
+        "Publication prête : %s stations (%s actives, %s avec normales) sur %s départements (%s → %s).",
+        len(station_catalog),
+        sum(1 for s in station_catalog if s["active"]),
+        sum(1 for s in station_catalog if s["has_normales"]),
+        processed, overall_first_date, overall_last_date,
     )
     return 0
 

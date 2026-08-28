@@ -9,7 +9,8 @@ Ce dépôt construit un tableau de **climatologie mensuelle par station** (relev
 - **historique complet** : toutes les périodes publiées par Météo-France sont récupérées pour chaque département (« avant-1949 », « 1950-2024 », « 2025-2026 », etc. — les bornes glissent chaque année et sont résolues dynamiquement via l'API data.gouv.fr, jamais codées en dur). Certaines stations parisiennes remontent à 1816 ;
 - ~1,5 Go de CSV compressés à télécharger par exécution complète (95 départements). Pour rester publiable et léger côté visiteur, chaque station est éclatée en un fichier JSON **par année** (`stations/<num_poste>/<année>.json.gz`) plutôt qu'un fichier unique avec tout l'historique : le site ne télécharge que l'année réellement consultée ;
 - ces fichiers annuels et le catalogue `stations.json.gz` sont **compressés gzip** : en clair, l'historique complet de la France dépasserait le seuil d'alerte de taille de dépôt GitHub (~5 Go — mesuré sur un échantillon de 2 départements, la projection nationale est de l'ordre de plusieurs Go). Décompression native côté navigateur (`DecompressionStream`), aucune dépendance JS ajoutée, mais nécessite un navigateur récent ;
-- comparaison aux normales 1991-2020 pas encore incluse ;
+- **normales 1991-2020 et records mensuels** quand la station en publie une : second jeu de données Météo-France, « [Fiches climatologiques](https://www.data.gouv.fr/datasets/fiches-climatologiques) » (~1 578 stations de référence sur data.gouv.fr, pas toutes les stations de la climatologie quotidienne — les stations secondaires/fermées de courte durée n'en ont généralement pas) ; republié en `stations/<num_poste>/normales.json` (non compressé, fichier minuscule) ;
+- **stations fermées masquées par défaut** dans le sélecteur (dernière donnée trop ancienne — plus de 2 ans), avec une case à cocher pour les réafficher regroupées séparément ;
 - couverture : France métropolitaine (le jeu de données Météo-France regroupe la Corse sous un code unique « 20 ») ;
 - pour chaque station : température maxi./mini. quotidiennes, précipitations 24h, durée d'ensoleillement (quand la station la mesure) ;
 - statistiques du mois : jours de chaleur (Tmax ≥ 25°C), forte chaleur (≥ 30°C), très forte chaleur (≥ 35°C), nuit tropicale (Tmin ≥ 20°C), gelée (≤ 0°C), forte gelée (≤ -5°C), très forte gelée (≤ -10°C), jours sans dégel (Tmax ≤ 0°C), jours de pluie (RR ≥ 1 mm).
@@ -32,7 +33,7 @@ python scripts/update_climato_france.py --output-dir build/national
 
 ## Installation WordPress
 
-Installez le ZIP séparé `climato-meteofrance-france-v1.2.0.zip`, activez-le, puis utilisez :
+Installez le ZIP séparé `climato-meteofrance-france-v1.3.0.zip`, activez-le, puis utilisez :
 
 ```text
 [climato_meteo]
@@ -53,5 +54,6 @@ https://raw.githubusercontent.com/alertesmeteo-hub/climato/data
 ## Sources
 
 - [Données climatologiques de base - quotidiennes — data.gouv.fr](https://www.data.gouv.fr/datasets/donnees-climatologiques-de-base-quotidiennes) (Météo-France, Licence Ouverte / Etalab 2.0)
+- [Fiches climatologiques — data.gouv.fr](https://www.data.gouv.fr/datasets/fiches-climatologiques) (Météo-France, normales 1991-2020 et records, Licence Ouverte / Etalab 2.0)
 
-Site : [www.alertes-meteo.com](https://www.alertes-meteo.com/) — module v1.2.0.
+Site : [www.alertes-meteo.com](https://www.alertes-meteo.com/) — module v1.3.0.

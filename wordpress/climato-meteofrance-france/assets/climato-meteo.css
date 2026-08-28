@@ -159,6 +159,87 @@
     font-size: .82rem;
 }
 
+.clm-links {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 18px;
+    border-bottom: 1px solid var(--clm-line);
+    font-size: .78rem;
+}
+
+.clm-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #33544c;
+    cursor: pointer;
+}
+
+.clm-checkbox input {
+    accent-color: var(--clm-teal);
+}
+
+.clm-link-button {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--clm-teal);
+    font-size: .78rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.clm-link-button:hover,
+.clm-link-button:focus-visible {
+    text-decoration: underline;
+    outline: 0;
+}
+
+.clm-normales-panel {
+    margin: 14px 18px 0;
+}
+
+.clm-normales-panel .clm-empty {
+    color: #5c766f;
+    font-size: .84rem;
+}
+
+.clm-normales-periode {
+    margin: 0 0 8px;
+    font-size: .78rem;
+    color: #5c766f;
+}
+
+.clm-normales-table {
+    min-width: 780px;
+}
+
+.clm-normales-table small {
+    color: #5c766f;
+    font-weight: 400;
+}
+
+.clm-compare-block {
+    margin: 16px 18px 0;
+    padding: 14px 16px;
+    border: 1px solid var(--clm-line);
+    border-radius: 12px;
+    background: #fbf6ea;
+}
+
+.clm-compare-block h4 {
+    margin: 0 0 8px;
+    font-size: .88rem;
+    color: var(--clm-navy);
+}
+
+.clm-compare-block .clm-stat-value small {
+    font-weight: 400;
+    color: #5c5340;
+}
+
 .clm-table-wrap {
     max-width: 100%;
     overflow-x: auto;
