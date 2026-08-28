@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Aperçu Climato v1.0.0</title>
+  <link rel="stylesheet" href="../wordpress/climato-meteofrance-france/assets/climato-meteo.css">
+  <style>body{margin:0;padding:18px;background:#eef3f7;font-family:Inter,"Segoe UI",Arial,sans-serif}.preview{max-width:1480px;margin:auto}</style>
+</head>
+<body>
+<main class="preview">
+<section id="preview-climato" class="clm-card" data-clm-app data-base-url="../build/test-climato" data-departement="28" data-station="28198001" data-annee="" data-mois="" data-module-version="1.0.0">
+  <header class="clm-header">
+    <div>
+      <p class="clm-kicker">STATIONS OFFICIELLES MÉTÉO-FRANCE</p>
+      <h2>Climatologie mensuelle</h2>
+      <p class="clm-meta" data-clm-station-meta>Chargement des stations…</p>
+    </div>
+    <div class="clm-badge"><span>CLIMATO</span><strong>Quotidien</strong></div>
+  </header>
+
+  <div class="clm-toolbar">
+    <label class="clm-field"><span>Département</span><select data-clm-select-departement></select></label>
+    <label class="clm-field clm-field-grow"><span>Station</span><select data-clm-select-station></select></label>
+    <label class="clm-field"><span>Mois</span><select data-clm-select-mois></select></label>
+    <label class="clm-field"><span>Année</span><select data-clm-select-annee></select></label>
+    <div class="clm-field clm-field-nav">
+      <span>&nbsp;</span>
+      <div class="clm-nav-buttons">
+        <button type="button" data-clm-prev aria-label="Mois précédent">&laquo;</button>
+        <button type="button" data-clm-next aria-label="Mois suivant">&raquo;</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="clm-status" data-clm-status hidden></div>
+
+  <div class="clm-table-wrap">
+    <table class="clm-table" data-clm-table>
+      <thead>
+        <tr>
+          <th scope="col">Jour</th>
+          <th scope="col">Température max.</th>
+          <th scope="col">Température min.</th>
+          <th scope="col">Précipitations 24h</th>
+          <th scope="col">Ensoleillement</th>
+        </tr>
+      </thead>
+      <tbody data-clm-table-body><tr><td colspan="5" class="clm-empty">Chargement…</td></tr></tbody>
+      <tfoot data-clm-table-foot></tfoot>
+    </table>
+  </div>
+  <p class="clm-legend">— Donnée manquante</p>
+
+  <div class="clm-stats">
+    <h3>Statistiques du mois</h3>
+    <ul data-clm-stats-list class="clm-stats-list"></ul>
+  </div>
+
+  <footer class="clm-footer">
+    <span>Données publiques : <a href="https://www.data.gouv.fr/datasets/donnees-climatologiques-de-base-quotidiennes" target="_blank" rel="noopener noreferrer">Météo-France — Climatologie de base quotidienne</a> • <a href="https://www.alertes-meteo.com/" target="_blank" rel="noopener noreferrer">www.alertes-meteo.com</a></span>
+    <span class="clm-plugin-version">Module Climato v1.0.0 (27/08/2026)</span>
+  </footer>
+</section>
+</main>
+<script src="../wordpress/climato-meteofrance-france/assets/climato-meteo.js"></script>
+</body>
+</html>

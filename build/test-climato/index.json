@@ -1,0 +1,1 @@
+{"status":"ok","generated_at":"2026-08-27T18:44:10Z","pipeline_version":"1.0.0-fixture","source":{"provider":"MÃ©tÃ©o-France","dataset":"DonnÃ©es climatologiques de base - quotidiennes (fixture locale)","license":"Licence Ouverte / Etalab 2.0"},"coverage":{"departments":2,"stations":25},"period":{"first_date":"2025-01-01","last_date":"2026-08-25"}}

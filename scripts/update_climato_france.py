@@ -1,0 +1,411 @@
+#!/usr/bin/env python3
+"""Construit les fichiers de climatologie mensuelle par station pour la France.
+
+Source : Météo-France, jeu de données publiques « Données climatologiques de
+base - quotidiennes » (data.gouv.fr, Licence Ouverte / Etalab 2.0). Aucune clé
+API n'est nécessaire : les fichiers CSV compressés sont téléchargés directement
+par département, puis fusionnés par station et par jour.
+
+Version « light » (v1) : seule la période la plus récente publiée par
+Météo-France pour chaque département est retenue (glissante sur ~2 ans), afin
+de limiter le volume de données. Les décennies antérieures ne sont pas
+téléchargées.
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import gzip
+import io
+import json
+import logging
+import re
+import sys
+import time
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Iterator
+
+import requests
+
+LOGGER = logging.getLogger("climato.france")
+PIPELINE_VERSION = "1.0.0"
+USER_AGENT = "alertes-meteo.com/climato-meteofrance-france/1.0.0"
+
+DATASET_API_URL = (
+    "https://www.data.gouv.fr/api/1/datasets/6569b51ae64326786e4e8e1a/"
+)
+DATASET_PAGE = (
+    "https://www.data.gouv.fr/datasets/donnees-climatologiques-de-base-quotidiennes"
+)
+
+# Départements de la France métropolitaine. Le jeu de données Météo-France
+# regroupe la Corse sous le code historique "20" (pas de scission 2A/2B).
+DEPARTMENTS: dict[str, str] = {
+    "01": "Ain", "02": "Aisne", "03": "Allier", "04": "Alpes-de-Haute-Provence",
+    "05": "Hautes-Alpes", "06": "Alpes-Maritimes", "07": "Ardèche", "08": "Ardennes",
+    "09": "Ariège", "10": "Aube", "11": "Aude", "12": "Aveyron",
+    "13": "Bouches-du-Rhône", "14": "Calvados", "15": "Cantal", "16": "Charente",
+    "17": "Charente-Maritime", "18": "Cher", "19": "Corrèze", "20": "Corse",
+    "21": "Côte-d'Or", "22": "Côtes-d'Armor", "23": "Creuse", "24": "Dordogne",
+    "25": "Doubs", "26": "Drôme", "27": "Eure", "28": "Eure-et-Loir",
+    "29": "Finistère", "30": "Gard", "31": "Haute-Garonne", "32": "Gers",
+    "33": "Gironde", "34": "Hérault", "35": "Ille-et-Vilaine", "36": "Indre",
+    "37": "Indre-et-Loire", "38": "Isère", "39": "Jura", "40": "Landes",
+    "41": "Loir-et-Cher", "42": "Loire", "43": "Haute-Loire", "44": "Loire-Atlantique",
+    "45": "Loiret", "46": "Lot", "47": "Lot-et-Garonne", "48": "Lozère",
+    "49": "Maine-et-Loire", "50": "Manche", "51": "Marne", "52": "Haute-Marne",
+    "53": "Mayenne", "54": "Meurthe-et-Moselle", "55": "Meuse", "56": "Morbihan",
+    "57": "Moselle", "58": "Nièvre", "59": "Nord", "60": "Oise",
+    "61": "Orne", "62": "Pas-de-Calais", "63": "Puy-de-Dôme", "64": "Pyrénées-Atlantiques",
+    "65": "Hautes-Pyrénées", "66": "Pyrénées-Orientales", "67": "Bas-Rhin", "68": "Haut-Rhin",
+    "69": "Rhône", "70": "Haute-Saône", "71": "Saône-et-Loire", "72": "Sarthe",
+    "73": "Savoie", "74": "Haute-Savoie", "75": "Paris", "76": "Seine-Maritime",
+    "77": "Seine-et-Marne", "78": "Yvelines", "79": "Deux-Sèvres", "80": "Somme",
+    "81": "Tarn", "82": "Tarn-et-Garonne", "83": "Var", "84": "Vaucluse",
+    "85": "Vendée", "86": "Vienne", "87": "Haute-Vienne", "88": "Vosges",
+    "89": "Yonne", "90": "Territoire de Belfort", "91": "Essonne", "92": "Hauts-de-Seine",
+    "93": "Seine-Saint-Denis", "94": "Val-de-Marne", "95": "Val-d'Oise",
+}
+
+RESOURCE_RE = re.compile(
+    r"^QUOT_departement_(?P<dept>\d{2})_periode_(?P<start>\d{4})-(?P<end>\d{4})"
+    r"_(?P<kind>RR-T-Vent|autres-parametres)$"
+)
+
+# Seuils des statistiques du mois (mêmes définitions que les tableaux de
+# climatologie mensuelle usuels : Météo-France / Meteociel).
+STAT_THRESHOLDS = (
+    ("jours_chaleur", "Jours de chaleur (Tmax >= 25°C)", "tx", ">=", 25.0),
+    ("jours_forte_chaleur", "Jours de forte chaleur (Tmax >= 30°C)", "tx", ">=", 30.0),
+    ("jours_tres_forte_chaleur", "Jours de très forte chaleur (Tmax >= 35°C)", "tx", ">=", 35.0),
+    ("jours_nuit_tropicale", "Jours avec nuit tropicale (Tmin >= 20°C)", "tn", ">=", 20.0),
+    ("jours_gelee", "Jours avec gelée (Tmin <= 0°C)", "tn", "<=", 0.0),
+    ("jours_forte_gelee", "Jours avec forte gelée (Tmin <= -5°C)", "tn", "<=", -5.0),
+    ("jours_tres_forte_gelee", "Jours avec très forte gelée (Tmin <= -10°C)", "tn", "<=", -10.0),
+    ("jours_sans_degel", "Jours sans dégel (Tmax <= 0°C)", "tx", "<=", 0.0),
+    ("jours_pluie", "Jours avec pluie (RR >= 1 mm)", "rr", ">=", 1.0),
+)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--output-dir", type=Path, default=Path("build/national"),
+        help="Dossier de sortie pour les fichiers JSON publiés.",
+    )
+    parser.add_argument(
+        "--departments", nargs="*", default=None,
+        help="Sous-ensemble de départements à traiter (ex: 28 75 92). "
+        "Par défaut : toute la France métropolitaine.",
+    )
+    parser.add_argument(
+        "--current-metadata-url", default=None,
+        help="URL de l'index.json déjà publié, pour ignorer une republication "
+        "inutile si aucune nouvelle journée n'est disponible.",
+    )
+    parser.add_argument("--verbose", action="store_true")
+    return parser.parse_args()
+
+
+def iso_utc(value: datetime | None = None) -> str:
+    value = value or datetime.now(timezone.utc)
+    return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def new_session() -> requests.Session:
+    session = requests.Session()
+    session.headers.update({"User-Agent": USER_AGENT})
+    return session
+
+
+def fetch_with_retries(
+    session: requests.Session, url: str, *, retries: int = 4, timeout: tuple[int, int] = (10, 120)
+) -> requests.Response:
+    last_error: Exception | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            response = session.get(url, timeout=timeout)
+            response.raise_for_status()
+            return response
+        except requests.RequestException as exc:
+            last_error = exc
+            wait = min(30, 2 ** attempt)
+            LOGGER.warning("Échec (%s/%s) pour %s : %s — nouvelle tentative dans %ss",
+                            attempt, retries, url, exc, wait)
+            time.sleep(wait)
+    assert last_error is not None
+    raise last_error
+
+
+def fetch_json(session: requests.Session, url: str) -> Any:
+    return fetch_with_retries(session, url).json()
+
+
+def build_resource_index(dataset: dict) -> dict[str, dict[str, str]]:
+    """Associe à chaque département la période la plus récente disponible."""
+    best: dict[str, dict[str, tuple[int, str]]] = {}
+    for resource in dataset.get("resources", []):
+        title = (resource.get("title") or "").strip()
+        match = RESOURCE_RE.match(title)
+        url = resource.get("url")
+        if not match or not url:
+            continue
+        dept = match.group("dept")
+        kind = match.group("kind")
+        end_year = int(match.group("end"))
+        current = best.setdefault(dept, {})
+        existing = current.get(kind)
+        if existing is None or end_year > existing[0]:
+            current[kind] = (end_year, url)
+    return {
+        dept: {kind: url for kind, (_year, url) in kinds.items()}
+        for dept, kinds in best.items()
+    }
+
+
+def to_float(value: str | None) -> float | None:
+    if value is None:
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def download_csv_rows(session: requests.Session, url: str) -> Iterator[dict[str, str]]:
+    response = fetch_with_retries(session, url)
+    with gzip.GzipFile(fileobj=io.BytesIO(response.content)) as gz:
+        text = io.TextIOWrapper(gz, encoding="latin-1", newline="")
+        reader = csv.DictReader(text, delimiter=";")
+        yield from reader
+
+
+def clean_station_name(raw: str) -> str:
+    return raw.strip().replace("_", " ").title()
+
+
+def process_department(
+    session: requests.Session, dept: str, urls: dict[str, str]
+) -> dict[str, dict[str, Any]]:
+    """Retourne {num_poste: {..., "days": {"YYYY-MM-DD": {...}}}}."""
+    stations: dict[str, dict[str, Any]] = {}
+
+    rrtvent_url = urls.get("RR-T-Vent")
+    if not rrtvent_url:
+        LOGGER.warning("Département %s : fichier RR-T-Vent introuvable, ignoré.", dept)
+        return stations
+
+    for row in download_csv_rows(session, rrtvent_url):
+        num_poste = (row.get("NUM_POSTE") or "").strip()
+        raw_date = (row.get("AAAAMMJJ") or "").strip()
+        if not num_poste or len(raw_date) != 8:
+            continue
+        date = f"{raw_date[0:4]}-{raw_date[4:6]}-{raw_date[6:8]}"
+        station = stations.get(num_poste)
+        if station is None:
+            station = {
+                "num_poste": num_poste,
+                "nom": clean_station_name(row.get("NOM_USUEL") or num_poste),
+                "departement": dept,
+                "lat": to_float(row.get("LAT")),
+                "lon": to_float(row.get("LON")),
+                "alti": to_float(row.get("ALTI")),
+                "days": {},
+            }
+            stations[num_poste] = station
+        station["days"][date] = {
+            "date": date,
+            "tx": to_float(row.get("TX")),
+            "tn": to_float(row.get("TN")),
+            "rr": to_float(row.get("RR")),
+            "insol_h": None,
+        }
+
+    autres_url = urls.get("autres-parametres")
+    if autres_url:
+        for row in download_csv_rows(session, autres_url):
+            num_poste = (row.get("NUM_POSTE") or "").strip()
+            station = stations.get(num_poste)
+            if station is None:
+                continue
+            raw_date = (row.get("AAAAMMJJ") or "").strip()
+            if len(raw_date) != 8:
+                continue
+            date = f"{raw_date[0:4]}-{raw_date[4:6]}-{raw_date[6:8]}"
+            insol = to_float(row.get("INST"))
+            if insol is None:
+                continue
+            day = station["days"].get(date)
+            if day is None:
+                day = {"date": date, "tx": None, "tn": None, "rr": None, "insol_h": None}
+                station["days"][date] = day
+            day["insol_h"] = round(insol / 60.0, 1)
+    else:
+        LOGGER.info("Département %s : pas de fichier autres-parametres (pas d'ensoleillement).", dept)
+
+    return stations
+
+
+def compact_days(days: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    return [days[key] for key in sorted(days.keys())]
+
+
+def write_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+        encoding="utf-8",
+    )
+
+
+def already_published(current_metadata_url: str | None, last_date: str | None, station_count: int) -> bool:
+    if not current_metadata_url or not last_date:
+        return False
+    try:
+        session = new_session()
+        previous = fetch_json(session, current_metadata_url)
+    except Exception as exc:  # noqa: BLE001 - une erreur réseau ne doit jamais bloquer une republication
+        LOGGER.info("Impossible de lire l'index déjà publié (%s), republication.", exc)
+        return False
+    period = previous.get("period") or {}
+    coverage = previous.get("coverage") or {}
+    return (
+        period.get("last_date") == last_date
+        and coverage.get("stations") == station_count
+        and previous.get("pipeline_version") == PIPELINE_VERSION
+    )
+
+
+def main() -> int:
+    args = parse_args()
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+    )
+
+    wanted_depts = set(args.departments) if args.departments else set(DEPARTMENTS)
+    unknown = wanted_depts - set(DEPARTMENTS)
+    if unknown:
+        LOGGER.error("Départements inconnus : %s", ", ".join(sorted(unknown)))
+        return 2
+
+    session = new_session()
+
+    LOGGER.info("Récupération du catalogue des ressources data.gouv.fr…")
+    dataset = fetch_json(session, DATASET_API_URL)
+    resource_index = build_resource_index(dataset)
+
+    all_stations: dict[str, dict[str, Any]] = {}
+    processed = 0
+    for dept in sorted(wanted_depts):
+        urls = resource_index.get(dept)
+        if not urls:
+            LOGGER.warning("Département %s : aucune ressource « latest » trouvée, ignoré.", dept)
+            continue
+        LOGGER.info("Département %s (%s)…", dept, DEPARTMENTS[dept])
+        stations = process_department(session, dept, urls)
+        all_stations.update(stations)
+        processed += 1
+
+    if not all_stations:
+        LOGGER.error("Aucune station récupérée, arrêt sans publication.")
+        return 1
+
+    station_catalog: list[dict[str, Any]] = []
+    last_dates: list[str] = []
+    first_dates: list[str] = []
+
+    output_dir: Path = args.output_dir
+    stations_dir = output_dir / "stations"
+
+    for num_poste, station in sorted(all_stations.items()):
+        days = compact_days(station["days"])
+        if not days:
+            continue
+        first_date = days[0]["date"]
+        last_date = days[-1]["date"]
+        first_dates.append(first_date)
+        last_dates.append(last_date)
+
+        station_payload = {
+            "num_poste": num_poste,
+            "nom": station["nom"],
+            "departement": station["departement"],
+            "lat": station["lat"],
+            "lon": station["lon"],
+            "alti": station["alti"],
+            "first_date": first_date,
+            "last_date": last_date,
+            "days": days,
+        }
+        write_json(stations_dir / f"{num_poste}.json", station_payload)
+
+        station_catalog.append({
+            "num_poste": num_poste,
+            "nom": station["nom"],
+            "departement": station["departement"],
+            "lat": station["lat"],
+            "lon": station["lon"],
+            "alti": station["alti"],
+            "first_date": first_date,
+            "last_date": last_date,
+        })
+
+    overall_last_date = max(last_dates) if last_dates else None
+    overall_first_date = min(first_dates) if first_dates else None
+
+    if already_published(args.current_metadata_url, overall_last_date, len(station_catalog)):
+        LOGGER.info("Aucune nouvelle journée depuis la dernière publication, on s'arrête ici.")
+        return 0
+
+    write_json(output_dir / "departements.json", DEPARTMENTS)
+    write_json(
+        output_dir / "stations.json",
+        {
+            "generated_at": iso_utc(),
+            "pipeline_version": PIPELINE_VERSION,
+            "stations": station_catalog,
+        },
+    )
+    write_json(
+        output_dir / "index.json",
+        {
+            "status": "ok",
+            "generated_at": iso_utc(),
+            "pipeline_version": PIPELINE_VERSION,
+            "source": {
+                "provider": "Météo-France",
+                "dataset": "Données climatologiques de base - quotidiennes",
+                "license": "Licence Ouverte / Etalab 2.0",
+                "dataset_url": DATASET_PAGE,
+            },
+            "coverage": {
+                "departments": processed,
+                "stations": len(station_catalog),
+            },
+            "period": {
+                "first_date": overall_first_date,
+                "last_date": overall_last_date,
+            },
+            "stats_definitions": [
+                {"key": key, "label": label, "field": field_name, "op": op, "threshold": threshold}
+                for key, label, field_name, op, threshold in STAT_THRESHOLDS
+            ],
+        },
+    )
+
+    LOGGER.info(
+        "Publication prête : %s stations sur %s départements (%s → %s).",
+        len(station_catalog), processed, overall_first_date, overall_last_date,
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
