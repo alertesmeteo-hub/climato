@@ -36,6 +36,28 @@
         });
     }
 
+    // Les gros fichiers (catalogue des stations, séries annuelles) sont
+    // publiés compressés gzip (.json.gz) pour rester sous la limite de
+    // taille de dépôt GitHub. On décompresse avec l'API native
+    // DecompressionStream — aucune bibliothèque JS ajoutée.
+    function fetchJsonGz(url) {
+        if (typeof DecompressionStream === "undefined") {
+            return Promise.reject(new Error(
+                "Ce navigateur ne prend pas en charge la décompression native (DecompressionStream) " +
+                "nécessaire pour afficher ce module. Merci de le mettre à jour."
+            ));
+        }
+        return fetch(url, { credentials: "omit" }).then(function (response) {
+            if (!response.ok) {
+                throw new Error("HTTP " + response.status + " sur " + url);
+            }
+            var decompressed = response.body.pipeThrough(new DecompressionStream("gzip"));
+            return new Response(decompressed).text();
+        }).then(function (text) {
+            return JSON.parse(text);
+        });
+    }
+
     function fmtValue(value, suffix) {
         if (value === null || value === undefined || isNaN(value)) {
             return "—";
@@ -47,10 +69,6 @@
 
     function pad2(value) {
         return value < 10 ? "0" + value : String(value);
-    }
-
-    function ymKey(year, month) {
-        return year + "-" + pad2(month);
     }
 
     function compareYm(a, b) {
@@ -67,6 +85,12 @@
 
     function daysInMonth(year, month) {
         return new Date(Date.UTC(year, month, 0)).getUTCDate();
+    }
+
+    function clamp(target, min, max) {
+        if (min && compareYm(target, min) < 0) { return min; }
+        if (max && compareYm(target, max) > 0) { return max; }
+        return target;
     }
 
     function initApp(root) {
@@ -89,11 +113,11 @@
         var elStatsList = root.querySelector("[data-clm-stats-list]");
 
         var departements = {};
-        var allStations = [];
         var stationsByDept = {};
         var stationsByCode = {};
-        var currentStation = null;
-        var currentDaysByDate = {};
+        var currentStationMeta = null;
+        var yearCache = {};
+        var yearRequestToken = 0;
         var currentYm = { year: 0, month: 0 };
         var minYm = null;
         var maxYm = null;
@@ -166,8 +190,35 @@
             elStatsList.innerHTML = "";
         }
 
+        // Un fichier annuel par station (au lieu d'un unique fichier avec tout
+        // l'historique) : certaines stations remontent à 1816, un seul mois
+        // affiché n'a besoin de télécharger que l'année concernée.
+        function ensureYearLoaded(year) {
+            if (Object.prototype.hasOwnProperty.call(yearCache, year)) {
+                return Promise.resolve(yearCache[year]);
+            }
+            if (!currentStationMeta || currentStationMeta.years.indexOf(year) === -1) {
+                yearCache[year] = {};
+                return Promise.resolve(yearCache[year]);
+            }
+            showStatus("Chargement de l'année " + year + "…");
+            var url = baseUrl + "/stations/" + currentStationMeta.num_poste + "/" + year + ".json.gz";
+            return fetchJsonGz(url).then(function (data) {
+                var byDate = {};
+                (data.days || []).forEach(function (day) {
+                    byDate[day.date] = day;
+                });
+                yearCache[year] = byDate;
+                return byDate;
+            }).catch(function (error) {
+                yearCache[year] = {};
+                showStatus("Erreur de chargement de l'année " + year + " : " + error.message);
+                return yearCache[year];
+            });
+        }
+
         function renderMonth() {
-            if (!currentStation) {
+            if (!currentStationMeta) {
                 return;
             }
             elMonth.value = String(currentYm.month);
@@ -175,6 +226,7 @@
             elPrev.disabled = minYm ? compareYm(currentYm, minYm) <= 0 : false;
             elNext.disabled = maxYm ? compareYm(currentYm, maxYm) >= 0 : false;
 
+            var currentDaysByDate = yearCache[currentYm.year] || {};
             var total = daysInMonth(currentYm.year, currentYm.month);
             var rows = [];
             var sums = { tx: 0, tn: 0, rr: 0, insol: 0 };
@@ -236,39 +288,41 @@
             showStatus(anyData ? "" : "Aucune donnée disponible pour ce mois.");
         }
 
-        function onStationLoaded(data, preferredYm) {
-            currentStation = data;
-            currentDaysByDate = {};
-            data.days.forEach(function (day) {
-                currentDaysByDate[day.date] = day;
+        function goToYm(target) {
+            target = clamp(target, minYm, maxYm);
+            currentYm = target;
+            var year = target.year;
+            var token = ++yearRequestToken;
+            ensureYearLoaded(year).then(function () {
+                if (token !== yearRequestToken) {
+                    return; // une navigation plus récente a pris le dessus
+                }
+                renderMonth();
             });
-            minYm = dateToYm(data.first_date);
-            maxYm = dateToYm(data.last_date);
+        }
+
+        function loadStation(numPoste, preferredYm) {
+            var meta = stationsByCode[numPoste];
+            if (!meta) {
+                renderEmptyTable("Station introuvable.");
+                return;
+            }
+            currentStationMeta = meta;
+            yearCache = {};
+            minYm = dateToYm(meta.first_date);
+            maxYm = dateToYm(meta.last_date);
             populateYearSelect(minYm.year, maxYm.year);
+
+            elMeta.textContent = meta.nom + " (" + meta.departement + ") — altitude " +
+                (meta.alti !== null && meta.alti !== undefined ? Math.round(meta.alti) + " m" : "inconnue") +
+                " — données du " + meta.first_date + " au " + meta.last_date;
 
             var target = preferredYm;
             if (!target || compareYm(target, minYm) < 0 || compareYm(target, maxYm) > 0) {
                 target = maxYm;
             }
-            currentYm = target;
-
-            elMeta.textContent = data.nom + " (" + data.departement + ") — altitude " + Math.round(data.alti) +
-                " m — données du " + data.first_date + " au " + data.last_date;
-
-            renderMonth();
-        }
-
-        function loadStation(numPoste, preferredYm) {
-            showStatus("Chargement des données de la station…");
             renderEmptyTable("Chargement…");
-            fetchJson(baseUrl + "/stations/" + numPoste + ".json")
-                .then(function (data) {
-                    onStationLoaded(data, preferredYm);
-                })
-                .catch(function (error) {
-                    renderEmptyTable("Données indisponibles pour cette station.");
-                    showStatus("Erreur de chargement : " + error.message);
-                });
+            goToYm(target);
         }
 
         function onDepartementChange() {
@@ -289,11 +343,7 @@
             if (!year || !month) {
                 return;
             }
-            var target = { year: year, month: month };
-            if (minYm && compareYm(target, minYm) < 0) { target = minYm; }
-            if (maxYm && compareYm(target, maxYm) > 0) { target = maxYm; }
-            currentYm = target;
-            renderMonth();
+            goToYm({ year: year, month: month });
         }
 
         function shiftMonth(delta) {
@@ -301,11 +351,7 @@
             var month = currentYm.month + delta;
             if (month < 1) { month = 12; year -= 1; }
             if (month > 12) { month = 1; year += 1; }
-            var target = { year: year, month: month };
-            if (minYm && compareYm(target, minYm) < 0) { target = minYm; }
-            if (maxYm && compareYm(target, maxYm) > 0) { target = maxYm; }
-            currentYm = target;
-            renderMonth();
+            goToYm({ year: year, month: month });
         }
 
         elDept.addEventListener("change", onDepartementChange);
@@ -320,10 +366,10 @@
 
         Promise.all([
             fetchJson(baseUrl + "/departements.json"),
-            fetchJson(baseUrl + "/stations.json")
+            fetchJsonGz(baseUrl + "/stations.json.gz")
         ]).then(function (results) {
             departements = results[0];
-            allStations = results[1].stations;
+            var allStations = results[1].stations;
             allStations.forEach(function (station) {
                 stationsByCode[station.num_poste] = station;
                 if (!stationsByDept[station.departement]) {

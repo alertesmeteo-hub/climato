@@ -2,8 +2,8 @@
 /**
  * Plugin Name: Climatologie mensuelle Météo-France — Tableaux
  * Plugin URI: https://github.com/alertesmeteo-hub/climato
- * Description: Tableau de climatologie mensuelle (relevés jour par jour et statistiques du mois) par station officielle Météo-France, pour la France métropolitaine.
- * Version: 1.0.0
+ * Description: Tableau de climatologie mensuelle (relevés jour par jour et statistiques du mois) par station officielle Météo-France, pour la France métropolitaine — historique complet depuis l'ouverture de chaque station.
+ * Version: 1.2.0
  * Author: Alertes Météo Hub
  * Requires at least: 5.8
  * Requires PHP: 7.4
@@ -14,8 +14,8 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CLIMATO_VERSION', '1.0.0');
-define('CLIMATO_RELEASE_DATE', '27/08/2026');
+define('CLIMATO_VERSION', '1.2.0');
+define('CLIMATO_RELEASE_DATE', '28/08/2026');
 define('CLIMATO_OPTION_BASE_URL', 'climato_national_data_base_url');
 define(
     'CLIMATO_DEFAULT_BASE_URL',
@@ -128,9 +128,9 @@ function climato_render_settings_page() {
         <p><code>[climato_meteo]</code> : tableau du mois en cours pour la station par défaut (Paris-Montsouris).</p>
         <p><code>[climato_meteo departement="28" station="28198001"]</code> : ouvre directement sur une station précise.</p>
         <p><code>[climato_meteo departement="06" annee="2025" mois="8"]</code> : ouvre sur un département, une année et un mois précis.</p>
-        <p>Le visiteur peut ensuite changer de département, de station, de mois et d’année depuis le tableau.</p>
+        <p>Le visiteur peut ensuite changer de département, de station, de mois et d’année depuis le tableau — jusqu’à l’ouverture de la station (certaines stations parisiennes remontent à 1816).</p>
         <h2>Source des données</h2>
-        <p>Météo-France, jeu de données publiques « Données climatologiques de base - quotidiennes » (data.gouv.fr, Licence Ouverte / Etalab 2.0). Seule la période la plus récente (glissante sur environ deux ans) est republiée par ce module.</p>
+        <p>Météo-France, jeu de données publiques « Données climatologiques de base - quotidiennes » (data.gouv.fr, Licence Ouverte / Etalab 2.0), historique complet publié par Météo-France pour chaque station. Chaque année n’est téléchargée par le visiteur que lorsqu’il la consulte, sous forme compressée (décompression native dans le navigateur — nécessite un navigateur récent : Chrome/Edge, Firefox ou Safari à jour).</p>
     </div>
     <?php
 }

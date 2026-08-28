@@ -15,9 +15,16 @@ stations parisiennes remontent ainsi à 1816.
 Pour rester publiable (des dizaines de millions de relevés au total) et
 publiable sans exploser la mémoire du runner, chaque département est traité
 puis écrit sur disque avant de passer au suivant, et chaque station est
-éclatée en un fichier JSON par année (« stations/<num_poste>/<année>.json »)
+éclatée en un fichier JSON par année (« stations/<num_poste>/<année>.json.gz »)
 plutôt qu'un unique fichier contenant tout l'historique : le site n'a besoin
 de télécharger que l'année réellement consultée.
+
+Ces fichiers par année, ainsi que le catalogue « stations.json », sont
+compressés gzip (« .json.gz ») : en clair, l'historique complet dépasserait
+le seuil d'alerte de taille de dépôt GitHub (~5 Go). Le site les décompresse
+côté navigateur avec l'API native DecompressionStream (aucune dépendance JS
+ajoutée). « departements.json » et « index.json » restent en clair : trop
+petits pour que ça vaille la peine.
 """
 
 from __future__ import annotations
@@ -39,8 +46,8 @@ from typing import Any, Iterator
 import requests
 
 LOGGER = logging.getLogger("climato.france")
-PIPELINE_VERSION = "1.1.0"
-USER_AGENT = "alertes-meteo.com/climato-meteofrance-france/1.1.0"
+PIPELINE_VERSION = "1.2.0"
+USER_AGENT = "alertes-meteo.com/climato-meteofrance-france/1.2.0"
 
 DATASET_API_URL = (
     "https://www.data.gouv.fr/api/1/datasets/6569b51ae64326786e4e8e1a/"
@@ -271,6 +278,8 @@ def process_department(
 
 
 def write_json(path: Path, payload: Any) -> None:
+    """Écrit un petit fichier JSON non compressé (departements.json, index.json :
+    consultés une seule fois, taille négligeable, pas besoin de gzip)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
@@ -278,16 +287,28 @@ def write_json(path: Path, payload: Any) -> None:
     )
 
 
+def write_json_gz(path: Path, payload: Any) -> None:
+    """Écrit un fichier JSON compressé gzip (extension .json.gz). Le volume total
+    de l'historique complet (plusieurs Go en clair sur 95 départements)
+    dépasserait le seuil d'alerte de taille de dépôt GitHub (5 Go) ; compressé,
+    on reste largement en dessous. Le site le décompresse côté navigateur avec
+    DecompressionStream (natif, pas de dépendance JS)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    with gzip.open(path, "wb", compresslevel=6) as fh:
+        fh.write(data)
+
+
 def write_station_years(stations_dir: Path, num_poste: str, days: list[dict[str, Any]]) -> list[int]:
-    """Éclate la série d'un poste en un fichier JSON par année. Retourne les
+    """Éclate la série d'un poste en un fichier JSON.gz par année. Retourne les
     années réellement écrites (triées)."""
     by_year: dict[int, list[dict[str, Any]]] = defaultdict(list)
     for day in days:
         by_year[int(day["date"][0:4])].append(day)
 
     for year, year_days in by_year.items():
-        write_json(
-            stations_dir / num_poste / f"{year}.json",
+        write_json_gz(
+            stations_dir / num_poste / f"{year}.json.gz",
             {"num_poste": num_poste, "year": year, "days": year_days},
         )
     return sorted(by_year.keys())
@@ -388,8 +409,8 @@ def main() -> int:
         return 0
 
     write_json(output_dir / "departements.json", DEPARTMENTS)
-    write_json(
-        output_dir / "stations.json",
+    write_json_gz(
+        output_dir / "stations.json.gz",
         {
             "generated_at": iso_utc(),
             "pipeline_version": PIPELINE_VERSION,

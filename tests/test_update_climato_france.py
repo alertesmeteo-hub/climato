@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import sys
 import tempfile
 import unittest
@@ -85,8 +86,8 @@ class WriteStationYearsTests(unittest.TestCase):
             years = write_station_years(stations_dir, "28198001", days)
             self.assertEqual(years, [2024, 2025])
 
-            year_2024 = (stations_dir / "28198001" / "2024.json").read_text(encoding="utf-8")
-            year_2025 = (stations_dir / "28198001" / "2025.json").read_text(encoding="utf-8")
+            year_2024 = gzip.decompress((stations_dir / "28198001" / "2024.json.gz").read_bytes()).decode("utf-8")
+            year_2025 = gzip.decompress((stations_dir / "28198001" / "2025.json.gz").read_bytes()).decode("utf-8")
             self.assertIn('"date":"2024-12-31"', year_2024)
             self.assertNotIn("2025-01-01", year_2024)
             self.assertIn('"date":"2025-01-01"', year_2025)
