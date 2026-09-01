@@ -24,6 +24,15 @@ Ce dépôt construit un tableau de **climatologie mensuelle par station** (relev
 
 Le workflow automatique est lancé une seule fois par jour à 07 h 15 UTC. Compte tenu du volume (~1,5 Go à télécharger et des dizaines de millions de relevés à fusionner), une exécution complète peut prendre significativement plus longtemps qu'une mise à jour cep/gfs ; le timeout du workflow est fixé à 3 h par prudence.
 
+Un second workflow léger, **« Complément récent SYNOP »**, s'exécute toutes les
+trois heures. Pour les stations principales disposant d'un identifiant OMM, il
+complète les derniers jours encore absents avec l'archive SYNOP Météo-France.
+La correspondance avec les postes climatologiques est déterminée par leurs
+coordonnées (distance maximale : 1 km). Une donnée quotidienne contrôlée reste
+toujours prioritaire et remplace automatiquement le complément SYNOP lors de la
+prochaine publication complète. L'archive SYNOP ouverte ne fournissant pas la
+durée d'insolation, celle-ci reste manquante jusqu'à la publication quotidienne.
+
 Commande locale équivalente :
 
 ```bash
