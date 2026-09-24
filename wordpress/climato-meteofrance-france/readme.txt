@@ -3,7 +3,7 @@ Contributors: alertesmeteo
 Tags: meteo, climatologie, meteo-france, station, tableau, avada
 Requires at least: 5.8
 Requires PHP: 7.4
-Stable tag: 1.6.0
+Stable tag: 1.7.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -32,6 +32,12 @@ Les données proviennent des fichiers publics Météo-France « Données climato
 Exemple : [climato_meteo departement="28" station="28198001"]
 
 == Changelog ==
+
+= 1.7.0 =
+* Graphiques du mois : températures maximales/minimales (courbes rouge/bleue) et précipitations quotidiennes (barres).
+* « Comparer avec les normales » : chaque Tmax/Tmin du tableau affiche son écart à la normale du mois (rouge au-dessus, bleu en dessous) ; le bilan du mois reste affiché plus bas.
+* Détail d'une journée : vent, rafale et pression arrondis.
+* Bloc « Comment sont calculées ces valeurs ? » (définitions Tx/Tn/précipitations, conversion TU / heure de France).
 
 = 1.6.0 =
 * Détail d'une journée : pour un jour absent de l'archive du VPS, les relevés horaires sont demandés à l'API climatologique de Météo-France (via le VPS, avec cache).

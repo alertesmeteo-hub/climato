@@ -277,15 +277,24 @@
         var TITRE_MANQUANT = "Donnée manquante : non publiée par Météo-France pour ce jour, ou grandeur non mesurée par cette station";
 
         // Cellule : valeur officielle, à défaut valeur provisoire issue des relevés horaires, à défaut « — ».
-        function cellHtml(official, provisional, suffix, recentDay) {
+        // Écart à la normale du mois, affiché à côté de la valeur : rouge au-dessus, bleu en dessous.
+        function ecartHtml(value, normal) {
+            if (normal === null || normal === undefined || value === null || value === undefined) { return ""; }
+            var e = Math.round((value - normal) * 10) / 10;
+            var cls = e > 0 ? "clm-ecart-haut" : (e < 0 ? "clm-ecart-bas" : "clm-ecart-nul");
+            return ' <span class="clm-ecart ' + cls + '">(' + (e > 0 ? "+" : "") + e.toFixed(1).replace(/\.0$/, "") + "°C)</span>";
+        }
+
+        function cellHtml(official, provisional, suffix, recentDay, normal, classe) {
+            var cls = classe ? classe + " " : "";
             if (official !== null && official !== undefined) {
-                return "<td>" + fmtValue(official, suffix) + "</td>";
+                return '<td class="' + cls + '">' + fmtValue(official, suffix) + ecartHtml(official, normal) + "</td>";
             }
             if (provisional !== null && provisional !== undefined) {
                 var partiel = recentDay && recentDay.n < 24 ? " — jour incomplet (" + recentDay.n + " relevés sur 24)" : "";
-                return '<td class="clm-prov" title="Valeur provisoire calculée à partir des relevés horaires' + partiel + '">' + fmtValue(provisional, suffix) + "</td>";
+                return '<td class="' + cls + 'clm-prov" title="Valeur provisoire calculée à partir des relevés horaires (jour UTC 0 h–24 h)' + partiel + '">' + fmtValue(provisional, suffix) + ecartHtml(provisional, normal) + "</td>";
             }
-            return '<td class="clm-na" title="' + TITRE_MANQUANT + '">—</td>';
+            return '<td class="' + cls + 'clm-na" title="' + TITRE_MANQUANT + '">—</td>';
         }
 
         function renderEmptyTable(message) {
@@ -419,6 +428,74 @@
                 "</ul>";
         }
 
+        function ticksY(lo, hi) {
+            var span = hi - lo;
+            var step = span <= 30 ? 3 : (span <= 60 ? 6 : 10);
+            var out = [];
+            for (var v = lo; v <= hi; v += step) { out.push(v); }
+            return out;
+        }
+
+        // Deux graphiques en SVG : Tx (rouge) / Tn (bleu) du jour, et précipitations 24 h (barres).
+        function chartSvg(kind, series, nDays) {
+            var W = 470, H = 215, L = 30, R = 8, T = 8, B = 40;
+            var vals = [];
+            (kind === "temp" ? series.tx.concat(series.tn) : series.rr).forEach(function (v) { if (v !== null && v !== undefined) { vals.push(v); } });
+            var lo, hi;
+            if (kind === "temp") {
+                lo = vals.length ? Math.floor((Math.min.apply(null, vals) - 1) / 3) * 3 : 0;
+                hi = vals.length ? Math.ceil((Math.max.apply(null, vals) + 1) / 3) * 3 : 30;
+            } else {
+                lo = 0;
+                hi = Math.max(3, vals.length ? Math.ceil(Math.max.apply(null, vals) / 3) * 3 : 3);
+            }
+            function X(i) { return L + (i + 0.5) * (W - L - R) / nDays; }
+            function Y(v) { return T + (hi - v) * (H - T - B) / (hi - lo); }
+            var g = "";
+            ticksY(lo, hi).forEach(function (v) {
+                g += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + Y(v) + '" y2="' + Y(v) + '" stroke="#b7c7c0" stroke-width="1"/>' +
+                    '<text x="' + (L - 4) + '" y="' + (Y(v) + 3) + '" font-size="9" text-anchor="end" fill="#334155">' + v + "</text>";
+            });
+            for (var i = 0; i < nDays; i++) {
+                g += '<line x1="' + X(i) + '" x2="' + X(i) + '" y1="' + T + '" y2="' + (H - B) + '" stroke="#cfdcd6" stroke-width="1"/>' +
+                    '<text x="' + X(i) + '" y="' + (H - B + 11) + '" font-size="8" text-anchor="middle" fill="#334155">' + (i + 1) + "</text>";
+            }
+            if (kind === "temp") {
+                [["tx", "#dc2626"], ["tn", "#2563eb"]].forEach(function (s) {
+                    var seg = [];
+                    var path = "";
+                    var pts = "";
+                    series[s[0]].forEach(function (v, i) {
+                        if (v === null || v === undefined) {
+                            if (seg.length) { path += '<polyline points="' + seg.join(" ") + '" fill="none" stroke="' + s[1] + '" stroke-width="1.5"/>'; seg = []; }
+                            return;
+                        }
+                        seg.push(X(i).toFixed(1) + "," + Y(v).toFixed(1));
+                        pts += '<circle cx="' + X(i).toFixed(1) + '" cy="' + Y(v).toFixed(1) + '" r="2" fill="' + s[1] + '"><title>' + (i + 1) + " : " + v + " °C</title></circle>";
+                    });
+                    if (seg.length) { path += '<polyline points="' + seg.join(" ") + '" fill="none" stroke="' + s[1] + '" stroke-width="1.5"/>'; }
+                    g += path + pts;
+                });
+            } else {
+                var bw = Math.max(3, (W - L - R) / nDays * 0.7);
+                series.rr.forEach(function (v, i) {
+                    if (v === null || v === undefined || v <= 0) { return; }
+                    g += '<rect x="' + (X(i) - bw / 2).toFixed(1) + '" y="' + Y(v).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + (Y(0) - Y(v)).toFixed(1) + '" fill="#1d1de0" stroke="#0f0f8a" stroke-width=".5"><title>' + (i + 1) + " : " + v + " mm</title></rect>";
+                });
+            }
+            var titre = kind === "temp" ? "Tx/Tn du jour ( °C )" : "Précipitations 24h ( mm )";
+            return '<svg viewBox="0 0 ' + W + " " + H + '" class="clm-graph" role="img" aria-label="' + titre + '"><rect x="0" y="0" width="' + W + '" height="' + H + '" fill="#e2f6ec"/>' + g +
+                '<text x="' + ((W + L - R) / 2) + '" y="' + (H - 6) + '" font-size="11" text-anchor="middle" font-family="monospace" font-weight="700" fill="#1e3a5f">' + titre + "</text></svg>";
+        }
+
+        function renderGraphs(series, nDays) {
+            var el = root.querySelector("[data-clm-graphs]");
+            if (!el) { return; }
+            var any = series.tx.concat(series.tn, series.rr).some(function (v) { return v !== null && v !== undefined; });
+            el.hidden = !any;
+            el.innerHTML = any ? chartSvg("temp", series, nDays) + chartSvg("pluie", series, nDays) : "";
+        }
+
         function renderMonth() {
             if (!currentStationMeta) {
                 return;
@@ -436,6 +513,11 @@
             var statCounts = {};
             STAT_DEFINITIONS.forEach(function (def) { statCounts[def.key] = 0; });
             var anyData = false;
+            var normStation = currentStationMeta ? normalesCache[currentStationMeta.num_poste] : null;
+            var normMonth = (compareWithNormales && normStation && normStation.months) ? normStation.months[currentYm.month - 1] : null;
+            var nTx = normMonth ? normMonth.tx_moy : null;
+            var nTn = normMonth ? normMonth.tn_moy : null;
+            var serie = { tx: [], tn: [], rr: [] };
 
             for (var d = 1; d <= total; d++) {
                 var dateStr = currentYm.year + "-" + pad2(currentYm.month) + "-" + pad2(d);
@@ -455,6 +537,9 @@
                 if (day || rec) {
                     anyData = true;
                 }
+                serie.tx.push(tx);
+                serie.tn.push(tn);
+                serie.rr.push(rr);
                 if (tx !== null && tx !== undefined) { sums.tx += tx; counts.tx++; }
                 if (tn !== null && tn !== undefined) { sums.tn += tn; counts.tn++; }
                 if (rr !== null && rr !== undefined) { sums.rr += rr; counts.rr++; }
@@ -472,14 +557,15 @@
 
                 rows.push(
                     '<tr class="clm-clic" data-date="' + dateStr + '" tabindex="0" title="Cliquez pour le détail heure par heure"><td>' + weekday + " " + d + "</td>" +
-                    cellHtml(txO, rec ? rec.tx : null, " °C", rec) +
-                    cellHtml(tnO, rec ? rec.tn : null, " °C", rec) +
+                    cellHtml(txO, rec ? rec.tx : null, " °C", rec, nTx, normMonth ? "clm-col-tx" : "") +
+                    cellHtml(tnO, rec ? rec.tn : null, " °C", rec, nTn, normMonth ? "clm-col-tn" : "") +
                     cellHtml(rrO, rec ? rec.rr : null, " mm", rec) +
                     cellHtml(insolO, rec ? rec.insol_h : null, " h", rec) + "</tr>"
                 );
             }
 
             elTableBody.innerHTML = rows.join("");
+            renderGraphs(serie, total);
             elTableFoot.innerHTML =
                 "<tr class=\"clm-summary-row\"><td>Moyenne / total</td>" +
                 "<td>" + fmtValue(counts.tx ? sums.tx / counts.tx : null, " °C") + "</td>" +
@@ -500,8 +586,8 @@
 
         // Flèche dans le sens où souffle le vent (dd = direction d'où il vient, en degrés) : vent du nord (0°) → flèche vers le bas.
         function ventHtml(dir, vitesse) {
-            var v = (vitesse === null || vitesse === undefined) ? "—" : vitesse + " km/h";
-            if (vitesse === 0) { return "calme"; }
+            var v = (vitesse === null || vitesse === undefined) ? "—" : Math.round(vitesse) + " km/h";
+            if (vitesse !== null && vitesse !== undefined && Math.round(vitesse) === 0) { return "calme"; }
             if (dir === null || dir === undefined) { return v; }
             var pt = POINTS[Math.round(dir / 22.5) % 16];
             return '<span class="clm-vent" title="Vent de ' + pt + " (" + dir + '°)"><span class="clm-vent-fleche" style="transform:rotate(' + dir + 'deg)">↓</span> ' + pt + "</span> " + v;
@@ -573,10 +659,11 @@
                 if (token !== detailToken) { return; }
                 var rows = res.rows;
                 var f = function (v, s) { return v === null || v === undefined ? "—" : v + s; };
+                var r0 = function (v) { return v === null || v === undefined ? v : Math.round(v); };
                 var body = rows.map(function (x) {
                     return "<tr><td>" + heureParis(x[0]) + "</td><td>" + f(x[1], " °C") + "</td><td>" + f(x[2], " °C") + "</td><td>" + f(x[3], " %") + "</td><td>" +
-                        ventHtml(x[4], x[5]) + "</td><td>" + f(x[6], " km/h") + "</td><td>" + f(x[7], " mm") + "</td><td>" +
-                        f(x[8], " hPa") + "</td><td>" + f(x[9], " km") + "</td><td>" + (x[10] === null || x[10] === undefined ? "—" : x[10] + " min") + "</td></tr>";
+                        ventHtml(x[4], x[5]) + "</td><td>" + f(r0(x[6]), " km/h") + "</td><td>" + f(x[7], " mm") + "</td><td>" +
+                        f(r0(x[8]), " hPa") + "</td><td>" + f(x[9], " km") + "</td><td>" + (x[10] === null || x[10] === undefined ? "—" : x[10] + " min") + "</td></tr>";
                 }).join("");
                 elDetail.innerHTML = '<div class="clm-detail-head"><h3>' + dateLongue(dateStr) + " — " + currentStationMeta.nom + '</h3><button type="button" class="clm-detail-close" data-clm-detail-close>Fermer ✕</button></div>' +
                     detailChart(rows, res.pas) +
