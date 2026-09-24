@@ -3,7 +3,7 @@ Contributors: alertesmeteo
 Tags: meteo, climatologie, meteo-france, station, tableau, avada
 Requires at least: 5.8
 Requires PHP: 7.4
-Stable tag: 1.8.0
+Stable tag: 1.8.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -32,6 +32,9 @@ Les données proviennent des fichiers publics Météo-France « Données climato
 Exemple : [climato_meteo departement="28" station="28198001"]
 
 == Changelog ==
+
+= 1.8.1 =
+* Panneau « Normales et records » : liste « Comparer avec les normales » (Aucune / 1991-2020) avec bouton OK, synchronisée avec la case à cocher du module.
 
 = 1.8.0 =
 * Panneau « Normales et records » présenté comme les fiches de référence : graphiques Tx/Tn moyennes et précipitations mensuelles, tableaux par mois avec colonne Année (températures, jours à seuil, précipitations, vent moyen, rafales, ensoleillement) et records avec dates. Nécessite la republication des normales (branche data).
