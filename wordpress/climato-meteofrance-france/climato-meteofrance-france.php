@@ -3,7 +3,7 @@
  * Plugin Name: Climatologie mensuelle Météo-France — Tableaux
  * Plugin URI: https://github.com/alertesmeteo-hub/climato
  * Description: Tableau de climatologie mensuelle (relevés jour par jour et statistiques du mois) par station officielle Météo-France, pour la France métropolitaine — historique complet depuis l'ouverture de chaque station.
- * Version: 1.3.0
+ * Version: 1.4.0
  * Author: Alertes Météo Hub
  * Requires at least: 5.8
  * Requires PHP: 7.4
@@ -14,19 +14,105 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CLIMATO_VERSION', '1.3.0');
-define('CLIMATO_RELEASE_DATE', '28/08/2026');
+define('CLIMATO_VERSION', '1.4.0');
+define('CLIMATO_RELEASE_DATE', '24/09/2026');
 define('CLIMATO_OPTION_BASE_URL', 'climato_national_data_base_url');
 define(
     'CLIMATO_DEFAULT_BASE_URL',
     'https://raw.githubusercontent.com/alertesmeteo-hub/climato/data'
 );
 
+// Auto-guérison du pipeline Climato : si index.json est resté bloqué trop
+// longtemps (cron GitHub Actions peu fiable), chaque chargement de la page
+// relance côté serveur un nouveau run via workflow_dispatch. Le jeton
+// GitHub reste EXCLUSIVEMENT côté serveur — à définir dans wp-config.php :
+//   define('CLIMATO_GITHUB_TOKEN', 'github_pat_xxx...');
+// Jeton « fine-grained », limité au dépôt alertesmeteo-hub/climato,
+// permission « Actions » en Read and write.
+define('CLIMATO_GITHUB_REPO', 'alertesmeteo-hub/climato');
+define('CLIMATO_GITHUB_DATA_BRANCH', 'data');
+define('CLIMATO_GITHUB_WORKFLOW_BRANCH', 'main');
+define('CLIMATO_GITHUB_WORKFLOW_FILE', 'update-climato.yml');
+// Un seul run quotidien : seuil largement au-dessus de 24 h.
+define('CLIMATO_STALE_THRESHOLD_MIN', 26 * 60);
+
 add_action('wp_enqueue_scripts', 'climato_register_assets');
 add_action('admin_init', 'climato_register_settings');
 add_action('admin_menu', 'climato_add_settings_page');
 add_shortcode('climato_meteo', 'climato_render_shortcode');
 add_filter('plugin_action_links_' . plugin_basename(__FILE__), 'climato_plugin_action_links');
+add_action('wp_ajax_climato_autoheal', 'climato_handle_autoheal');
+add_action('wp_ajax_nopriv_climato_autoheal', 'climato_handle_autoheal');
+
+function climato_handle_autoheal() {
+    if (!defined('CLIMATO_GITHUB_TOKEN') || !CLIMATO_GITHUB_TOKEN) {
+        wp_send_json_success(array('configured' => false));
+    }
+
+    if (get_transient('climato_autoheal_lock')) {
+        wp_send_json_success(array('skipped' => true));
+    }
+    set_transient('climato_autoheal_lock', 1, 5 * MINUTE_IN_SECONDS);
+
+    $generated_at = climato_fetch_generated_at();
+    if (null === $generated_at) {
+        wp_send_json_success(array('configured' => true, 'checked' => false));
+    }
+
+    $age_minutes = (time() - $generated_at) / 60;
+    if ($age_minutes <= CLIMATO_STALE_THRESHOLD_MIN) {
+        wp_send_json_success(array('configured' => true, 'stale' => false, 'age_minutes' => round($age_minutes)));
+    }
+
+    if (get_transient('climato_autoheal_cooldown')) {
+        wp_send_json_success(array('configured' => true, 'stale' => true, 'triggered' => false, 'cooldown' => true));
+    }
+    set_transient('climato_autoheal_cooldown', 1, 30 * MINUTE_IN_SECONDS);
+
+    $triggered = climato_trigger_workflow();
+    wp_send_json_success(array('configured' => true, 'stale' => true, 'triggered' => $triggered));
+}
+
+function climato_fetch_generated_at() {
+    $url = 'https://api.github.com/repos/' . CLIMATO_GITHUB_REPO . '/contents/index.json'
+        . '?ref=' . rawurlencode(CLIMATO_GITHUB_DATA_BRANCH);
+    $response = wp_remote_get($url, array(
+        'headers' => array(
+            'Accept'     => 'application/vnd.github.raw',
+            'User-Agent' => 'climato-meteofrance-france-autoheal',
+        ),
+        'timeout' => 8,
+    ));
+    if (is_wp_error($response) || 200 !== wp_remote_retrieve_response_code($response)) {
+        return null;
+    }
+    $data = json_decode(wp_remote_retrieve_body($response), true);
+    if (empty($data['generated_at'])) {
+        return null;
+    }
+    $timestamp = strtotime($data['generated_at']);
+    return $timestamp ? $timestamp : null;
+}
+
+function climato_trigger_workflow() {
+    $url = 'https://api.github.com/repos/' . CLIMATO_GITHUB_REPO . '/actions/workflows/'
+        . rawurlencode(CLIMATO_GITHUB_WORKFLOW_FILE) . '/dispatches';
+    $response = wp_remote_post($url, array(
+        'headers' => array(
+            'Accept'        => 'application/vnd.github+json',
+            'Authorization' => 'Bearer ' . CLIMATO_GITHUB_TOKEN,
+            'Content-Type'  => 'application/json',
+            'User-Agent'    => 'climato-meteofrance-france-autoheal',
+        ),
+        'body'    => wp_json_encode(array('ref' => CLIMATO_GITHUB_WORKFLOW_BRANCH)),
+        'timeout' => 8,
+    ));
+    if (is_wp_error($response)) {
+        return false;
+    }
+    $code = wp_remote_retrieve_response_code($response);
+    return $code >= 200 && $code < 300;
+}
 
 function climato_plugin_action_links($links) {
     $settings_link = sprintf(
@@ -60,6 +146,9 @@ function climato_register_assets() {
         CLIMATO_VERSION,
         true
     );
+    wp_localize_script('climato-meteo', 'CLIMATO_AUTOHEAL', array(
+        'url' => admin_url('admin-ajax.php?action=climato_autoheal'),
+    ));
 }
 
 function climato_register_settings() {
@@ -132,8 +221,27 @@ function climato_render_settings_page() {
         <p>Les stations fermées depuis longtemps sont masquées par défaut (case « Afficher aussi les stations fermées » pour les retrouver). Quand Météo-France publie une fiche climatologique pour la station, les normales 1991-2020 et les records sont disponibles via « Normales 1991-2020 et records » et « Comparer avec les normales ».</p>
         <h2>Source des données</h2>
         <p>Météo-France, jeux de données publiques « Données climatologiques de base - quotidiennes » et « Fiches climatologiques » (data.gouv.fr, Licence Ouverte / Etalab 2.0), historique complet publié par Météo-France pour chaque station. Chaque année n’est téléchargée par le visiteur que lorsqu’il la consulte, sous forme compressée (décompression native dans le navigateur — nécessite un navigateur récent : Chrome/Edge, Firefox ou Safari à jour).</p>
+        <h2>Auto-guérison du pipeline</h2>
+        <p>
+            Statut : <strong><?php echo (defined('CLIMATO_GITHUB_TOKEN') && CLIMATO_GITHUB_TOKEN) ? '✅ Configurée' : '⚠️ Non configurée'; ?></strong>
+        </p>
+        <p>
+            Si <code>index.json</code> reste bloqué plus de <?php echo esc_html((int) round(CLIMATO_STALE_THRESHOLD_MIN / 60)); ?> heures,
+            chaque chargement de cette page relance automatiquement le pipeline sur GitHub. Pour l'activer, ajouter dans
+            <code>wp-config.php</code> :
+        </p>
+        <p><code>define('CLIMATO_GITHUB_TOKEN', 'github_pat_xxx...');</code></p>
+        <p>
+            Jeton « fine-grained » GitHub, limité au dépôt <code>alertesmeteo-hub/climato</code>, permission
+            « Actions : Read and write » uniquement. Il n'est jamais transmis au navigateur.
+        </p>
     </div>
     <?php
+}
+
+/** Relevés horaires archivés par le VPS (compléments récents + détail d'une journée). */
+function climato_obs_url() {
+    return untrailingslashit(apply_filters('climato_obs_url', 'https://dicton-du-jour.alertes-meteo.com/donnees/observations'));
 }
 
 function climato_base_url() {
@@ -201,6 +309,7 @@ function climato_render_shortcode($atts) {
         class="clm-card"
         data-clm-app
         data-base-url="<?php echo esc_url(climato_base_url()); ?>"
+        data-obs-url="<?php echo esc_url(climato_obs_url()); ?>"
         data-departement="<?php echo esc_attr($department); ?>"
         data-station="<?php echo esc_attr($station); ?>"
         data-annee="<?php echo esc_attr($year ?: ''); ?>"
@@ -277,7 +386,8 @@ function climato_render_shortcode($atts) {
                 <tfoot data-clm-table-foot></tfoot>
             </table>
         </div>
-        <p class="clm-legend">— Donnée manquante</p>
+        <p class="clm-legend">— Donnée manquante ou non mesurée par cette station · <span class="clm-prov-legend">Valeur en italique</span> : relevé horaire provisoire (en attendant la publication quotidienne officielle) · Cliquez sur un jour pour le détail heure par heure.</p>
+        <div class="clm-detail" data-clm-detail hidden></div>
 
         <div class="clm-compare-block" data-clm-compare-block hidden></div>
 

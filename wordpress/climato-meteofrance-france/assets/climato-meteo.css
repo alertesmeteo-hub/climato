@@ -400,3 +400,17 @@
         align-items: flex-start;
     }
 }
+
+/* v1.4.0 — valeurs provisoires, cellules manquantes, détail d'une journée */
+.clm-table td.clm-prov{font-style:italic;color:#475569}
+.clm-prov-legend{font-style:italic}
+.clm-table td.clm-na{color:#94a3b8;cursor:help}
+.clm-table tbody tr.clm-clic{cursor:pointer}
+.clm-table tbody tr.clm-clic:hover,.clm-table tbody tr.clm-clic:focus-visible{background:#eef4fb;outline:none}
+.clm-detail{margin-top:14px;padding:14px;border:1px solid #d8dee6;border-radius:12px;background:#fff}
+.clm-detail-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px}
+.clm-detail-head h3{margin:0;font-size:17px}
+.clm-detail-close{border:1px solid #ccd5df;background:#fff;border-radius:8px;padding:6px 10px;cursor:pointer;font-weight:700}
+.clm-detail-chart{width:100%;height:auto;display:block;margin:6px 0 10px}
+.clm-detail-msg{margin:6px 0;color:#475569}
+.clm-detail-table td,.clm-detail-table th{white-space:nowrap;font-size:13px}

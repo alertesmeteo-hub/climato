@@ -3,7 +3,7 @@ Contributors: alertesmeteo
 Tags: meteo, climatologie, meteo-france, station, tableau, avada
 Requires at least: 5.8
 Requires PHP: 7.4
-Stable tag: 1.3.0
+Stable tag: 1.4.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -32,6 +32,15 @@ Les données proviennent des fichiers publics Météo-France « Données climato
 Exemple : [climato_meteo departement="28" station="28198001"]
 
 == Changelog ==
+
+= 1.4.0 =
+* Compléments récents : les jours pas encore publiés dans la climatologie quotidienne sont complétés (en italique) avec les relevés horaires Météo-France archivés chaque heure par le VPS (Tmax, Tmin, pluie, ensoleillement).
+* Détail d'une journée : un clic sur un jour affiche les relevés heure par heure (température, rosée, humidité, vent, rafales, pluie, pression, visibilité, ensoleillement) avec courbe.
+* Cellules manquantes : « — » avec info-bulle expliquant que la donnée n'est pas publiée ou pas mesurée par la station.
+
+= 1.3.1 =
+* Le filtre des stations fermées fonctionne aussi avec un ancien catalogue de données v1.2.0 dépourvu du champ « active ».
+* Le chargement des normales reste compatible avec les catalogues antérieurs ; la branche data doit néanmoins être reconstruite en v1.3.0 pour publier les fichiers normales.json.
 
 = 1.3.0 =
 * Les stations fermées depuis longtemps sont masquées par défaut dans le sélecteur, avec une case pour les réafficher (regroupées dans un groupe « Stations fermées »).
