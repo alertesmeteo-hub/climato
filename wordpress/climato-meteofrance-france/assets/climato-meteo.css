@@ -454,3 +454,16 @@
 .clm-nrm-ctrl{display:flex;flex-wrap:wrap;gap:8px 16px;justify-content:center;align-items:center;margin:0 0 10px;color:#0c1f5c;font-size:14px}
 .clm-nrm-ctrl select{margin-left:4px;padding:2px 4px;border:1px solid #8aa79c;border-radius:3px;background:#fff}
 .clm-nrm-ctrl button{padding:2px 12px;border:1px solid #8aa79c;border-radius:3px;background:#f3f3f3;cursor:pointer;font-weight:600}
+
+/* v1.8.2 — palette bleue du panneau des normales (plus de jaune) */
+.clm-nrm{background:#eaf1f9;border-color:#a9bfd6}
+.clm-nrm-titre,.clm-nrm-sous,.clm-nrm-ctrl{color:#12325c}
+.clm-nrm .clm-graph{border-color:#a9bfd6}
+.clm-nrm .clm-graph rect:first-child{fill:#e3ecf7}
+.clm-nrm-table{background:#f4f8fc}
+.clm-nrm-table th,.clm-nrm-table td{border-color:#9db5cf}
+.clm-nrm-table tr.clm-nrm-head th{background:#1f4e79;color:#fff;font-weight:600}
+.clm-nrm-table tbody th[scope=row]{background:#dbe7f4;color:#12325c}
+.clm-nrm-table .clm-nrm-annee{background:#cfe0f1;color:#12325c}
+.clm-nrm-table tr.clm-nrm-head th.clm-nrm-annee{background:#123a63;color:#fff}
+.clm-nrm-records small{color:#3b5a80}
