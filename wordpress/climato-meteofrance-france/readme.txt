@@ -3,7 +3,7 @@ Contributors: alertesmeteo
 Tags: meteo, climatologie, meteo-france, station, tableau, avada
 Requires at least: 5.8
 Requires PHP: 7.4
-Stable tag: 1.4.0
+Stable tag: 1.4.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -32,6 +32,9 @@ Les données proviennent des fichiers publics Météo-France « Données climato
 Exemple : [climato_meteo departement="28" station="28198001"]
 
 == Changelog ==
+
+= 1.4.1 =
+* Détail d'une journée : flèche indiquant la direction du vent (sens dans lequel il souffle) avec le point cardinal.
 
 = 1.4.0 =
 * Compléments récents : les jours pas encore publiés dans la climatologie quotidienne sont complétés (en italique) avec les relevés horaires Météo-France archivés chaque heure par le VPS (Tmax, Tmin, pluie, ensoleillement).
