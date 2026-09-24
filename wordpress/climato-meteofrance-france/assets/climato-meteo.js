@@ -96,6 +96,8 @@
     function initApp(root) {
         var baseUrl = root.getAttribute("data-base-url");
         var obsUrl = (root.getAttribute("data-obs-url") || "").replace(/\/$/, "");
+        var obsApiUrl = (root.getAttribute("data-obs-api-url") || "").replace(/\/$/, "");
+        var gapsTried = {};
         var initialDepartement = root.getAttribute("data-departement") || "";
         var initialStation = root.getAttribute("data-station") || "";
         var initialYear = parseInt(root.getAttribute("data-annee"), 10) || 0;
@@ -547,7 +549,7 @@
             var token = ++detailToken;
             var poste = currentStationMeta.num_poste;
             elDetail.hidden = false;
-            elDetail.innerHTML = '<p class="clm-detail-msg">Chargement du détail du ' + dateLongue(dateStr) + "…</p>";
+            elDetail.innerHTML = '<p class="clm-detail-msg">Chargement du détail du ' + dateLongue(dateStr) + " (interrogation de Météo-France, quelques secondes)…</p>";
             var dep = poste.slice(0, 2);
             var pick = function (url) {
                 return fetchJson(url).then(function (d) {
@@ -558,7 +560,15 @@
             };
             // Pas de 6 minutes quand la station en dispose (30 derniers jours), sinon relevés horaires.
             pick(obsUrl + "/jours6m/" + dateStr + "/" + dep + ".json").then(function (r) { return { rows: r, pas: 6 }; }, function () {
-                return pick(obsUrl + "/jours/" + dateStr + "/" + dep + ".json").then(function (r) { return { rows: r, pas: 60 }; });
+                return pick(obsUrl + "/jours/" + dateStr + "/" + dep + ".json").then(function (r) { return { rows: r, pas: 60 }; }, function () {
+                    // Jour hors archive du VPS : relevés horaires demandés à l'API climatologique de Météo-France.
+                    if (!obsApiUrl) { throw new Error("vide"); }
+                    return fetchJson(obsApiUrl + "/station-jours?station=" + poste + "&debut=" + dateStr + "&fin=" + dateStr).then(function (d) {
+                        var r = d.jours && d.jours[dateStr];
+                        if (!r || !r.length) { throw new Error("vide"); }
+                        return { rows: r, pas: 60 };
+                    });
+                });
             }).then(function (res) {
                 if (token !== detailToken) { return; }
                 var rows = res.rows;
@@ -576,7 +586,7 @@
             }).catch(function () {
                 if (token !== detailToken) { return; }
                 elDetail.innerHTML = '<div class="clm-detail-head"><h3>' + dateLongue(dateStr) + '</h3><button type="button" class="clm-detail-close" data-clm-detail-close>Fermer ✕</button></div>' +
-                    '<p class="clm-detail-msg">Le détail heure par heure n\'est pas disponible pour ce jour : l\'archive horaire a démarré le 24/09/2026 et conserve les 120 derniers jours. Les valeurs quotidiennes du tableau restent celles de Météo-France.</p>';
+                    '<p class="clm-detail-msg">Le détail heure par heure n\'est pas disponible pour ce jour : Météo-France ne publie pas de relevé horaire pour cette station à cette date. Les valeurs quotidiennes du tableau restent celles de Météo-France.</p>';
             });
         }
 
@@ -592,6 +602,40 @@
         elDetail.addEventListener("click", function (ev) {
             if (ev.target && ev.target.hasAttribute("data-clm-detail-close")) { elDetail.hidden = true; elDetail.innerHTML = ""; }
         });
+
+        // Jours du mois sans valeur (ni officielle, ni archive complète) sur les ~65 derniers jours : demandés en une fois à l'API du VPS.
+        function ensureGaps(ym) {
+            if (!obsApiUrl || !currentStationMeta) { return Promise.resolve(false); }
+            var poste = currentStationMeta.num_poste;
+            var cle = poste + "/" + ym.year + "-" + ym.month;
+            if (gapsTried[cle]) { return Promise.resolve(false); }
+            var byDate = yearCache[ym.year] || {};
+            var today = new Date().toISOString().slice(0, 10);
+            var limite = new Date(Date.now() - 65 * 86400000).toISOString().slice(0, 10);
+            var missing = [];
+            for (var d = 1; d <= daysInMonth(ym.year, ym.month); d++) {
+                var ds = ym.year + "-" + pad2(ym.month) + "-" + pad2(d);
+                if (ds >= today || ds < limite) { continue; }
+                var off = byDate[ds];
+                var rec = recentDays[ds];
+                var hasOfficial = off && (off.tx != null || off.tn != null || off.rr != null);
+                if (!hasOfficial && (!rec || rec.n < 24)) { missing.push(ds); }
+            }
+            if (!missing.length) { return Promise.resolve(false); }
+            gapsTried[cle] = true;
+            return fetchJson(obsApiUrl + "/station-jours?station=" + poste + "&debut=" + missing[0] + "&fin=" + missing[missing.length - 1]).then(function (r) {
+                var changed = false;
+                Object.keys(r.quotidien || {}).forEach(function (date) {
+                    var q = r.quotidien[date];
+                    var old = recentDays[date];
+                    if (!old || q.n > old.n) {
+                        recentDays[date] = { date: date, tx: q.tx, tn: q.tn, rr: q.rr, insol_h: q.insol_h, n: q.n };
+                        changed = true;
+                    }
+                });
+                return changed;
+            }).catch(function () { return false; });
+        }
 
         function goToYm(target) {
             target = clamp(target, minYm, maxYm);
@@ -619,6 +663,9 @@
                     return; // une navigation plus récente a pris le dessus
                 }
                 renderMonth();
+                ensureGaps(target).then(function (changed) {
+                    if (changed && token === yearRequestToken) { renderMonth(); }
+                });
             });
         }
 

@@ -3,7 +3,7 @@ Contributors: alertesmeteo
 Tags: meteo, climatologie, meteo-france, station, tableau, avada
 Requires at least: 5.8
 Requires PHP: 7.4
-Stable tag: 1.5.0
+Stable tag: 1.6.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -32,6 +32,10 @@ Les données proviennent des fichiers publics Météo-France « Données climato
 Exemple : [climato_meteo departement="28" station="28198001"]
 
 == Changelog ==
+
+= 1.6.0 =
+* Détail d'une journée : pour un jour absent de l'archive du VPS, les relevés horaires sont demandés à l'API climatologique de Météo-France (via le VPS, avec cache).
+* Jours manquants du tableau (non encore publiés dans la climatologie quotidienne, sur les ~65 derniers jours) : complétés à partir de ces relevés horaires (valeurs en italique).
 
 = 1.5.0 =
 * Détail d'une journée : relevés toutes les 6 minutes (30 derniers jours) pour le réseau synoptique principal et le département 66 ; relevés horaires pour les autres stations et les jours plus anciens.

@@ -3,7 +3,7 @@
  * Plugin Name: Climatologie mensuelle Météo-France — Tableaux
  * Plugin URI: https://github.com/alertesmeteo-hub/climato
  * Description: Tableau de climatologie mensuelle (relevés jour par jour et statistiques du mois) par station officielle Météo-France, pour la France métropolitaine — historique complet depuis l'ouverture de chaque station.
- * Version: 1.5.0
+ * Version: 1.6.0
  * Author: Alertes Météo Hub
  * Requires at least: 5.8
  * Requires PHP: 7.4
@@ -14,7 +14,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CLIMATO_VERSION', '1.5.0');
+define('CLIMATO_VERSION', '1.6.0');
 define('CLIMATO_RELEASE_DATE', '24/09/2026');
 define('CLIMATO_OPTION_BASE_URL', 'climato_national_data_base_url');
 define(
@@ -244,6 +244,11 @@ function climato_obs_url() {
     return untrailingslashit(apply_filters('climato_obs_url', 'https://dicton-du-jour.alertes-meteo.com/donnees/observations'));
 }
 
+/** API du VPS : relevés horaires à la demande (API climatologique Météo-France) pour les jours hors archive. */
+function climato_obs_api_url() {
+    return untrailingslashit(apply_filters('climato_obs_api_url', 'https://dicton-du-jour.alertes-meteo.com/api/v1/obs'));
+}
+
 function climato_base_url() {
     $url = get_option(CLIMATO_OPTION_BASE_URL, CLIMATO_DEFAULT_BASE_URL);
     return untrailingslashit(apply_filters('climato_national_data_base_url', $url));
@@ -310,6 +315,7 @@ function climato_render_shortcode($atts) {
         data-clm-app
         data-base-url="<?php echo esc_url(climato_base_url()); ?>"
         data-obs-url="<?php echo esc_url(climato_obs_url()); ?>"
+        data-obs-api-url="<?php echo esc_url(climato_obs_api_url()); ?>"
         data-departement="<?php echo esc_attr($department); ?>"
         data-station="<?php echo esc_attr($station); ?>"
         data-annee="<?php echo esc_attr($year ?: ''); ?>"
