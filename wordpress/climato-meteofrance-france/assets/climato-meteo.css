@@ -415,3 +415,19 @@
 .clm-detail-msg{margin:6px 0;color:#475569}
 .clm-detail-table td,.clm-detail-table th{white-space:nowrap;font-size:13px}
 .clm-vent{white-space:nowrap}.clm-vent-fleche{display:inline-block;font-weight:900;color:#0f5ea8;transform-origin:center}
+
+/* v1.7.0 — graphiques, écarts à la normale, précisions */
+.clm-graphs{display:flex;flex-wrap:wrap;gap:12px;margin:12px 0}
+.clm-graph{flex:1 1 320px;min-width:0;width:100%;height:auto;border:1px solid #b7c7c0;background:#e2f6ec}
+.clm-graphs svg{flex:1 1 320px;max-width:calc(50% - 6px)}
+@media (max-width:720px){.clm-graphs svg{max-width:100%}}
+.clm-table td.clm-col-tx{background:#fdeaea}
+.clm-table td.clm-col-tn{background:#ebe9f8}
+.clm-ecart{font-style:italic;font-weight:600;white-space:nowrap}
+.clm-ecart-haut{color:#dc2626}
+.clm-ecart-bas{color:#2563eb}
+.clm-ecart-nul{color:#64748b}
+.clm-precisions{margin-top:14px;padding:12px 14px;border:1px solid #d8dee6;border-radius:12px;background:#f8fafc;font-size:13px;line-height:1.5}
+.clm-precisions h3{margin:0 0 6px;font-size:15px}
+.clm-precisions ul{margin:4px 0 8px 18px;padding:0}
+.clm-precisions p{margin:6px 0}

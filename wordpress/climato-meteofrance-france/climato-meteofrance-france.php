@@ -3,7 +3,7 @@
  * Plugin Name: Climatologie mensuelle Météo-France — Tableaux
  * Plugin URI: https://github.com/alertesmeteo-hub/climato
  * Description: Tableau de climatologie mensuelle (relevés jour par jour et statistiques du mois) par station officielle Météo-France, pour la France métropolitaine — historique complet depuis l'ouverture de chaque station.
- * Version: 1.6.0
+ * Version: 1.7.0
  * Author: Alertes Météo Hub
  * Requires at least: 5.8
  * Requires PHP: 7.4
@@ -14,7 +14,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CLIMATO_VERSION', '1.6.0');
+define('CLIMATO_VERSION', '1.7.0');
 define('CLIMATO_RELEASE_DATE', '24/09/2026');
 define('CLIMATO_OPTION_BASE_URL', 'climato_national_data_base_url');
 define(
@@ -375,6 +375,8 @@ function climato_render_shortcode($atts) {
 
         <div class="clm-status" data-clm-status hidden></div>
 
+        <div class="clm-graphs" data-clm-graphs hidden></div>
+
         <div class="clm-table-wrap">
             <table class="clm-table" data-clm-table>
                 <thead>
@@ -400,6 +402,23 @@ function climato_render_shortcode($atts) {
         <div class="clm-stats">
             <h3>Statistiques du mois</h3>
             <ul data-clm-stats-list class="clm-stats-list"></ul>
+        </div>
+
+        <div class="clm-precisions">
+            <h3>Comment sont calculées ces valeurs ?</h3>
+            <ul>
+                <li><strong>Température maximale</strong> : la valeur la plus haute mesurée entre 6 h TU et 6 h TU le lendemain (jour J à J+1).</li>
+                <li><strong>Température minimale</strong> : la valeur la plus basse mesurée entre 18 h TU la veille et 18 h TU du jour (jour J-1 à J).</li>
+                <li><strong>Précipitations</strong> : quantité de pluie, neige ou grêle (en mm d'eau) tombée entre 6 h TU et 6 h TU le lendemain.</li>
+                <li><strong>Enneigement</strong> : épaisseur de la couche de neige relevée à 6 h TU.</li>
+                <li><strong>Valeurs en italique</strong> : provisoires, calculées à partir des relevés horaires sur la journée UTC (0 h à 24 h TU) en attendant la publication officielle de Météo-France ; elles peuvent différer légèrement de la valeur officielle.</li>
+            </ul>
+            <p><strong>TU = Temps Universel</strong>, l'heure de référence des relevés météo. Pour passer à l'heure de France :</p>
+            <ul>
+                <li>0 h TU = 1 h en hiver, 2 h en été ;</li>
+                <li>6 h TU = 7 h en hiver, 8 h en été ;</li>
+                <li>18 h TU = 19 h en hiver, 20 h en été.</li>
+            </ul>
         </div>
 
         <footer class="clm-footer">
