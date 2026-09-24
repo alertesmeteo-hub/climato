@@ -467,3 +467,8 @@
 .clm-nrm-table .clm-nrm-annee{background:#cfe0f1;color:#12325c}
 .clm-nrm-table tr.clm-nrm-head th.clm-nrm-annee{background:#123a63;color:#fff}
 .clm-nrm-records small{color:#3b5a80}
+
+/* v1.9.0 — choix du pas des relevés */
+.clm-detail-pas{margin:4px 0 8px;font-size:13px;color:#475569}
+.clm-pas-btn{margin-left:6px;padding:4px 10px;border:1px solid #9db5cf;background:#fff;border-radius:6px;cursor:pointer;font-weight:600;color:#12325c}
+.clm-pas-btn.is-on{background:#1f4e79;color:#fff;border-color:#1f4e79}
