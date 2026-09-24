@@ -494,6 +494,17 @@
             renderCompareBlock(sums, counts);
         }
 
+        var POINTS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSO", "SO", "OSO", "O", "ONO", "NO", "NNO"];
+
+        // Flèche dans le sens où souffle le vent (dd = direction d'où il vient, en degrés) : vent du nord (0°) → flèche vers le bas.
+        function ventHtml(dir, vitesse) {
+            var v = (vitesse === null || vitesse === undefined) ? "—" : vitesse + " km/h";
+            if (vitesse === 0) { return "calme"; }
+            if (dir === null || dir === undefined) { return v; }
+            var pt = POINTS[Math.round(dir / 22.5) % 16];
+            return '<span class="clm-vent" title="Vent de ' + pt + " (" + dir + '°)"><span class="clm-vent-fleche" style="transform:rotate(' + dir + 'deg)">↓</span> ' + pt + "</span> " + v;
+        }
+
         function heureParis(iso) {
             return new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris", hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
         }
@@ -542,7 +553,7 @@
                 var f = function (v, s) { return v === null || v === undefined ? "—" : v + s; };
                 var body = rows.map(function (x) {
                     return "<tr><td>" + heureParis(x[0]) + "</td><td>" + f(x[1], " °C") + "</td><td>" + f(x[2], " °C") + "</td><td>" + f(x[3], " %") + "</td><td>" +
-                        (x[4] !== null && x[4] !== undefined ? x[4] + "° " : "") + f(x[5], " km/h") + "</td><td>" + f(x[6], " km/h") + "</td><td>" + f(x[7], " mm") + "</td><td>" +
+                        ventHtml(x[4], x[5]) + "</td><td>" + f(x[6], " km/h") + "</td><td>" + f(x[7], " mm") + "</td><td>" +
                         f(x[8], " hPa") + "</td><td>" + f(x[9], " km") + "</td><td>" + (x[10] === null || x[10] === undefined ? "—" : x[10] + " min") + "</td></tr>";
                 }).join("");
                 elDetail.innerHTML = '<div class="clm-detail-head"><h3>' + dateLongue(dateStr) + " — " + currentStationMeta.nom + '</h3><button type="button" class="clm-detail-close" data-clm-detail-close>Fermer ✕</button></div>' +

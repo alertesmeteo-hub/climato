@@ -414,3 +414,4 @@
 .clm-detail-chart{width:100%;height:auto;display:block;margin:6px 0 10px}
 .clm-detail-msg{margin:6px 0;color:#475569}
 .clm-detail-table td,.clm-detail-table th{white-space:nowrap;font-size:13px}
+.clm-vent{white-space:nowrap}.clm-vent-fleche{display:inline-block;font-weight:900;color:#0f5ea8;transform-origin:center}
