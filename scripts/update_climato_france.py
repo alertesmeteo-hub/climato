@@ -85,7 +85,25 @@ FICHE_SECTION_MARKERS = (
     ("rr_record", "hauteur quotidienne maximale"),
     ("rr_moy", "hauteur moyenne mensuelle"),
     ("insol_moy", "durée d'insolation"),
+    ("raf_record", "rafale maximale de vent"),
+    ("vent_moy", "vitesse du vent moyenn"),
 )
+
+# Lignes « Nombre moyen de jours avec … » : libellé normalisé (espaces retirés, minuscules) → clé publiée.
+FICHE_JOURS_ROWS = (
+    ("tx_30", "tx>=30°c"),
+    ("tx_25", "tx>=25°c"),
+    ("tx_0", "tx<=0°c"),
+    ("tn_0", "tn<=0°c"),
+    ("tn_m5", "tn<=-5°c"),
+    ("tn_m10", "tn<=-10°c"),
+    ("rr_1", "rr>=1mm"),
+    ("rr_5", "rr>=5mm"),
+    ("rr_10", "rr>=10mm"),
+    ("raf_16", ">=16m/s"),
+    ("raf_28", ">=28m/s"),
+)
+RECORDS_PERIODE_RE = re.compile(r"du (\d{2})-(\d{2})-(\d{4}) au (\d{2})-(\d{2})-(\d{4})")
 
 # Départements de la France métropolitaine. Le jeu de données Météo-France
 # regroupe la Corse sous le code historique "20" (pas de scission 2A/2B).
@@ -253,9 +271,26 @@ def parse_fiche_climatologique(text: str) -> dict[str, Any] | None:
 
     values: dict[str, list[float | None]] = {}
     dates: dict[str, list[str | None]] = {}
+    annee: dict[str, float | None] = {}
+    annee_dates: dict[str, str | None] = {}
+    jours: dict[str, list[float | None]] = {}
+    records_periode: str | None = None
 
     for block in blocks:
         title_line = block[0].strip().rstrip(";").lower()
+
+        if title_line.startswith("nombre moyen de jours avec") and "brouillard" not in title_line:
+            for line in block[1:]:
+                if line.strip().startswith("(") or ";" not in line:
+                    continue
+                cells = [c.strip() for c in line.split(";")]
+                label = cells[0].replace(" ", "").lower()
+                key = next((k for k, marker in FICHE_JOURS_ROWS if label == marker), None)
+                if key:
+                    # « . » = valeur égale à 0, « - » = donnée manquante (légende de la fiche).
+                    jours[key] = [0.0 if c == "." else to_float(c) for c in cells[1:14]]
+            continue
+
         matched_key = next(
             (key for key, marker in FICHE_SECTION_MARKERS if marker in title_line),
             None,
@@ -272,16 +307,30 @@ def parse_fiche_climatologique(text: str) -> dict[str, Any] | None:
             elif not stripped.startswith("(") and ";" in line:
                 value_line = line
 
+        for line in block[1:]:
+            m = RECORDS_PERIODE_RE.search(line)
+            if m and records_periode is None:
+                records_periode = f"du {m.group(1)}/{m.group(2)}/{m.group(3)} au {m.group(4)}/{m.group(5)}/{m.group(6)}"
+
         if value_line:
             cells = [c.strip() for c in value_line.split(";")]
             values[matched_key] = [to_float(c) for c in cells[1:13]]
+            annee[matched_key] = to_float(cells[13]) if len(cells) > 13 else None
         if date_line:
             cells = [c.strip() for c in date_line.split(";")]
             dates[matched_key] = [c or None for c in cells[1:13]]
+            annee_dates[matched_key] = (cells[13] or None) if len(cells) > 13 else None
 
     if not values:
         return None
-    return {"values": values, "dates": dates}
+    return {
+        "values": values,
+        "dates": dates,
+        "annee": annee,
+        "annee_dates": annee_dates,
+        "jours": jours,
+        "records_periode": records_periode,
+    }
 
 
 def build_normales_payload(num_poste: str, parsed: dict[str, Any]) -> dict[str, Any]:
@@ -311,12 +360,26 @@ def build_normales_payload(num_poste: str, parsed: dict[str, Any]) -> dict[str, 
             "rr_record": at("rr_record", i),
             "rr_record_date": date_at("rr_record", i),
             "insol_moy": at("insol_moy", i),
+            # Champs ajoutés en v1.8 (présentation « normales et records ») : jours à seuil, vent (m/s), rafales.
+            **{key: (parsed["jours"][key][i] if key in parsed["jours"] else None) for key, _ in FICHE_JOURS_ROWS},
+            "vent_moy": at("vent_moy", i),
+            "raf_record": at("raf_record", i),
+            "raf_record_date": date_at("raf_record", i),
         })
+
+    # Colonne « Année » de la fiche : moyennes annuelles, totaux, records absolus (avec l'année du record).
+    annee = {key: parsed["annee"].get(key) for key in ("tx_moy", "tm_moy", "tn_moy", "rr_moy", "insol_moy", "vent_moy",
+                                                         "tx_record", "tn_record", "rr_record", "raf_record")}
+    annee.update({f"{key}_date": parsed["annee_dates"].get(key) for key in ("tx_record", "tn_record", "rr_record", "raf_record")})
+    annee.update({key: (parsed["jours"][key][12] if key in parsed["jours"] and len(parsed["jours"][key]) > 12 else None)
+                  for key, _ in FICHE_JOURS_ROWS})
 
     return {
         "num_poste": num_poste,
         "periode_normales": "1991-2020",
+        "records_periode": parsed.get("records_periode"),
         "months": months,
+        "annee": annee,
     }
 
 
