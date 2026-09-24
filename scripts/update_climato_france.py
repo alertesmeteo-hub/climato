@@ -53,8 +53,8 @@ from typing import Any, Iterator
 import requests
 
 LOGGER = logging.getLogger("climato.france")
-PIPELINE_VERSION = "1.3.0"
-USER_AGENT = "alertes-meteo.com/climato-meteofrance-france/1.3.0"
+PIPELINE_VERSION = "1.4.0"
+USER_AGENT = "alertes-meteo.com/climato-meteofrance-france/1.4.0"
 
 DATASET_API_URL = (
     "https://www.data.gouv.fr/api/1/datasets/6569b51ae64326786e4e8e1a/"
