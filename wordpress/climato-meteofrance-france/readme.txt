@@ -3,7 +3,7 @@ Contributors: alertesmeteo
 Tags: meteo, climatologie, meteo-france, station, tableau, avada
 Requires at least: 5.8
 Requires PHP: 7.4
-Stable tag: 1.7.0
+Stable tag: 1.7.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -32,6 +32,9 @@ Les données proviennent des fichiers publics Météo-France « Données climato
 Exemple : [climato_meteo departement="28" station="28198001"]
 
 == Changelog ==
+
+= 1.7.1 =
+* Correction : décocher « Comparer avec les normales » retire aussi les écarts affichés dans le tableau (seul le bilan du bas disparaissait).
 
 = 1.7.0 =
 * Graphiques du mois : températures maximales/minimales (courbes rouge/bleue) et précipitations quotidiennes (barres).

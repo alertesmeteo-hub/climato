@@ -843,8 +843,9 @@
                 ensureNormalesLoaded(currentStationMeta.num_poste).then(function () {
                     renderMonth();
                 });
-            } else if (elCompareBlock) {
-                elCompareBlock.hidden = true;
+            } else {
+                // Case décochée : on redessine le mois pour retirer les écarts du tableau et masquer le bilan du bas.
+                renderMonth();
             }
         }
 
