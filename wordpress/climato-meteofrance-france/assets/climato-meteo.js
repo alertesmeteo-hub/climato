@@ -360,6 +360,71 @@
             return day + " " + MONTH_NAMES[monthIndex] + " " + parts[1];
         }
 
+        // Date de record « JJ-AAAA » + mois → « JJ/MM/AAAA ».
+        function recordDateFr(dayYear, monthIndex) {
+            if (!dayYear) { return ""; }
+            var parts = dayYear.split("-");
+            if (parts.length !== 2 || !parts[0] || !parts[1]) { return ""; }
+            return pad2(parseInt(parts[0], 10)) + "/" + pad2(monthIndex + 1) + "/" + parts[1];
+        }
+
+        var MOIS_COURTS = ["Jan", "Fév", "Mars", "Avr", "Mai", "Juin", "Juil", "Août", "Sept", "Oct", "Nov", "Déc"];
+        var MOIS_LETTRES = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
+
+        // Graphique annuel (12 mois) : courbes Tx/Tn moyennes ou barres de précipitations mensuelles.
+        function normalesChart(kind, months) {
+            var W = 400, H = 190, L = 30, R = 8, T = 8, B = 38;
+            var vals = [];
+            months.forEach(function (m) {
+                if (kind === "temp") { [m.tx_moy, m.tn_moy].forEach(function (v) { if (v !== null && v !== undefined) { vals.push(v); } }); }
+                else if (m.rr_moy !== null && m.rr_moy !== undefined) { vals.push(m.rr_moy); }
+            });
+            if (!vals.length) { return ""; }
+            var lo, hi, step;
+            if (kind === "temp") {
+                step = 3;
+                lo = Math.floor((Math.min.apply(null, vals) - 1) / step) * step;
+                hi = Math.ceil((Math.max.apply(null, vals) + 1) / step) * step;
+            } else {
+                step = Math.max(7, Math.ceil(Math.max.apply(null, vals) / 10 / 7) * 7);
+                lo = 0;
+                hi = Math.ceil(Math.max.apply(null, vals) / step) * step;
+            }
+            function X(i) { return L + (i + 0.5) * (W - L - R) / 12; }
+            function Y(v) { return T + (hi - v) * (H - T - B) / (hi - lo); }
+            var g = "";
+            for (var v = lo; v <= hi; v += step) {
+                g += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + Y(v) + '" y2="' + Y(v) + '" stroke="#b7c7c0"/>' +
+                    '<text x="' + (L - 4) + '" y="' + (Y(v) + 3) + '" font-size="9" text-anchor="end" fill="#1e3a8a">' + v + "</text>";
+            }
+            for (var i = 0; i < 12; i++) {
+                g += '<line x1="' + X(i) + '" x2="' + X(i) + '" y1="' + T + '" y2="' + (H - B) + '" stroke="#cfdcd6"/>' +
+                    '<text x="' + X(i) + '" y="' + (H - B + 12) + '" font-size="10" text-anchor="middle" fill="#1e3a8a">' + MOIS_LETTRES[i] + "</text>";
+            }
+            if (kind === "temp") {
+                [["tx_moy", "#dc2626"], ["tn_moy", "#2563eb"]].forEach(function (s) {
+                    var pts = [];
+                    var dots = "";
+                    months.forEach(function (m, i) {
+                        var val = m[s[0]];
+                        if (val === null || val === undefined) { return; }
+                        pts.push(X(i).toFixed(1) + "," + Y(val).toFixed(1));
+                        dots += '<circle cx="' + X(i).toFixed(1) + '" cy="' + Y(val).toFixed(1) + '" r="2.2" fill="' + s[1] + '"><title>' + MOIS_COURTS[i] + " : " + val + " °C</title></circle>";
+                    });
+                    g += '<polyline points="' + pts.join(" ") + '" fill="none" stroke="' + s[1] + '" stroke-width="1.5"/>' + dots;
+                });
+            } else {
+                var bw = (W - L - R) / 12 * 0.95;
+                months.forEach(function (m, i) {
+                    if (m.rr_moy === null || m.rr_moy === undefined) { return; }
+                    g += '<rect x="' + (X(i) - bw / 2).toFixed(1) + '" y="' + Y(m.rr_moy).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + (Y(0) - Y(m.rr_moy)).toFixed(1) + '" fill="#0a0ae0" stroke="#5aa0ff" stroke-width="1"><title>' + MOIS_COURTS[i] + " : " + m.rr_moy + " mm</title></rect>";
+                });
+            }
+            var titre = kind === "temp" ? "Tx/Tn moyennes ( °C )" : "Précipitations mensuelles ( mm )";
+            return '<svg viewBox="0 0 ' + W + " " + H + '" class="clm-graph" role="img" aria-label="' + titre + '"><rect width="' + W + '" height="' + H + '" fill="#e2f6ec"/>' + g +
+                '<text x="' + ((W + L - R) / 2) + '" y="' + (H - 6) + '" font-size="11" text-anchor="middle" font-family="monospace" font-weight="700" fill="#1e3a8a">' + titre + "</text></svg>";
+        }
+
         function renderNormalesPanel() {
             if (!elNormalesPanel) { return; }
             if (!currentStationMeta) { return; }
@@ -368,24 +433,58 @@
                 elNormalesPanel.innerHTML = '<p class="clm-empty">Normales et records non disponibles pour cette station.</p>';
                 return;
             }
-            var rows = data.months.map(function (m) {
-                var txRecord = fmtValue(m.tx_record, " °C");
-                var txDate = fmtRecordDate(m.tx_record_date, m.mois - 1);
-                var tnRecord = fmtValue(m.tn_record, " °C");
-                var tnDate = fmtRecordDate(m.tn_record_date, m.mois - 1);
-                return "<tr><td>" + MONTH_NAMES[m.mois - 1] + "</td>" +
-                    "<td>" + fmtValue(m.tx_moy, " °C") + "</td>" +
-                    "<td>" + fmtValue(m.tn_moy, " °C") + "</td>" +
-                    "<td>" + txRecord + (txDate ? " <small>(" + txDate + ")</small>" : "") + "</td>" +
-                    "<td>" + tnRecord + (tnDate ? " <small>(" + tnDate + ")</small>" : "") + "</td>" +
-                    "<td>" + fmtValue(m.rr_moy, " mm") + "</td>" +
-                    "<td>" + fmtValue(m.insol_moy, " h") + "</td></tr>";
-            }).join("");
+            var months = data.months;
+            var an = data.annee || {};
+            var meta = currentStationMeta;
+            var num = function (v, factor, suffix) {
+                if (v === null || v === undefined) { return "—"; }
+                return fmtValue(factor ? v * factor : v, suffix || "");
+            };
+            function headerRow() {
+                return '<tr class="clm-nrm-head"><th></th>' + MOIS_COURTS.map(function (m) { return "<th>" + m + "</th>"; }).join("") + '<th class="clm-nrm-annee">Année</th></tr>';
+            }
+            function dataRow(label, key, factor) {
+                var cells = months.map(function (m) { return "<td>" + num(m[key], factor) + "</td>"; }).join("");
+                return "<tr><th scope=\"row\">" + label + "</th>" + cells + '<td class="clm-nrm-annee">' + num(an[key], factor) + "</td></tr>";
+            }
+            function bloc(rows) { return headerRow() + rows.join(""); }
+
+            // Record absolu de l'année : on retrouve le mois qui le porte pour afficher sa date complète.
+            function recordRow(label, key, factor) {
+                var cells = months.map(function (m, i) {
+                    var d = recordDateFr(m[key + "_date"], i);
+                    return "<td><span class=\"clm-nrm-rec\">" + num(m[key], factor) + "</span>" + (d ? "<small>" + d + "</small>" : "") + "</td>";
+                }).join("");
+                var best = null;
+                months.forEach(function (m, i) { if (m[key] !== null && m[key] !== undefined && m[key] === an[key] && best === null) { best = i; } });
+                var dAn = best !== null ? recordDateFr(months[best][key + "_date"], best) : "";
+                return "<tr><th scope=\"row\">" + label + "</th>" + cells + '<td class="clm-nrm-annee"><span class="clm-nrm-rec">' + num(an[key], factor) + "</span>" + (dAn ? "<small>" + dAn + "</small>" : "") + "</td></tr>";
+            }
+
+            var corps =
+                bloc([dataRow("Temp. max. (°C)", "tx_moy"), dataRow("Temp. moy. (°C)", "tm_moy"), dataRow("Temp. min. (°C)", "tn_moy")]) +
+                bloc([dataRow("Jours Tx ≥ 30°C", "tx_30"), dataRow("Jours Tx ≥ 25°C", "tx_25"), dataRow("Jours Tx ≤ 0°C", "tx_0"),
+                    dataRow("Jours Tn ≤ 0°C", "tn_0"), dataRow("Jours Tn ≤ -5°C", "tn_m5"), dataRow("Jours Tn ≤ -10°C", "tn_m10")]) +
+                bloc([dataRow("RR mensuel (mm)", "rr_moy")]) +
+                bloc([dataRow("Jours RR ≥ 1mm", "rr_1"), dataRow("Jours RR ≥ 5mm", "rr_5"), dataRow("Jours RR ≥ 10mm", "rr_10")]) +
+                bloc([dataRow("Vent moyen (km/h)", "vent_moy", 3.6)]) +
+                bloc([dataRow("Jours rafales ≥ 58km/h", "raf_16"), dataRow("Jours rafales ≥ 100km/h", "raf_28")]) +
+                bloc([dataRow("Ensoleillement (heures)", "insol_moy")]);
+
+            var records =
+                headerRow() + recordRow("Temp. max. (°C)", "tx_record") + recordRow("Temp. min. (°C)", "tn_record") +
+                recordRow("Rafale (km/h)", "raf_record", 3.6) + recordRow("RR 24h (mm)", "rr_record");
+
             elNormalesPanel.innerHTML =
-                '<p class="clm-normales-periode">Normales ' + data.periode_normales + ', records sur toute la période de mesure.</p>' +
-                '<div class="clm-table-wrap"><table class="clm-table clm-normales-table"><thead><tr>' +
-                "<th>Mois</th><th>Tmax moy.</th><th>Tmin moy.</th><th>Record Tmax</th><th>Record Tmin</th><th>Pluie moy.</th><th>Ensoleil. moy.</th>" +
-                "</tr></thead><tbody>" + rows + "</tbody></table></div>";
+                '<div class="clm-nrm">' +
+                '<h3 class="clm-nrm-titre">Normales et records pour ' + meta.nom + " (" + meta.departement + ")" +
+                (meta.alti !== null && meta.alti !== undefined ? ' <small>(Alt. ' + Math.round(meta.alti) + " m)</small>" : "") + "</h3>" +
+                '<h4 class="clm-nrm-sous">Normales / Moyennes ' + data.periode_normales + "</h4>" +
+                '<div class="clm-graphs">' + normalesChart("temp", months) + normalesChart("pluie", months) + "</div>" +
+                '<div class="clm-table-wrap"><table class="clm-nrm-table"><tbody>' + corps + "</tbody></table></div>" +
+                '<h4 class="clm-nrm-sous">Records' + (data.records_periode ? " <small>( " + data.records_periode + " )</small>" : "") + "</h4>" +
+                '<div class="clm-table-wrap"><table class="clm-nrm-table clm-nrm-records"><tbody>' + records + "</tbody></table></div>" +
+                "</div>";
         }
 
         function renderCompareBlock(sums, counts) {

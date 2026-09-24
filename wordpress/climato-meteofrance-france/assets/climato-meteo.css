@@ -431,3 +431,21 @@
 .clm-precisions h3{margin:0 0 6px;font-size:15px}
 .clm-precisions ul{margin:4px 0 8px 18px;padding:0}
 .clm-precisions p{margin:6px 0}
+
+/* v1.8.0 — panneau « Normales et records » présenté comme les fiches de référence */
+.clm-nrm{background:#e6f7ef;border:1px solid #b7c7c0;border-radius:10px;padding:14px;margin:10px 0}
+.clm-nrm-titre{margin:0 0 4px;text-align:center;color:#0c1f5c;font-size:20px}
+.clm-nrm-titre small{font-size:13px;color:#334155}
+.clm-nrm-sous{margin:6px 0 10px;text-align:center;color:#0c1f5c;font-size:16px}
+.clm-nrm-sous small{font-size:12px;font-weight:400;color:#334155}
+.clm-nrm .clm-graphs{justify-content:center}
+.clm-nrm .clm-graphs svg{max-width:calc(50% - 6px)}
+@media (max-width:720px){.clm-nrm .clm-graphs svg{max-width:100%}}
+.clm-nrm-table{border-collapse:collapse;width:100%;background:#e9fbf3;font-size:13px}
+.clm-nrm-table th,.clm-nrm-table td{border:1px solid #8aa79c;padding:3px 6px;text-align:center;white-space:nowrap}
+.clm-nrm-table tr.clm-nrm-head th{background:#fff45c;color:#0c1f5c;font-weight:600}
+.clm-nrm-table tbody th[scope=row]{background:#fffbd0;text-align:right;font-weight:500;color:#0c1f5c}
+.clm-nrm-table .clm-nrm-annee{background:#c9f3ff;font-weight:600}
+.clm-nrm-table tr.clm-nrm-head th.clm-nrm-annee{background:#fff45c}
+.clm-nrm-rec{display:block;font-weight:600}
+.clm-nrm-records small{display:block;font-size:9px;color:#1e3a8a}
