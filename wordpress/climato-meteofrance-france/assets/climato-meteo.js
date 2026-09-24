@@ -516,23 +516,25 @@
         }
 
         // Courbe SVG de la température (ligne) et de la pluie horaire (barres).
-        function detailChart(rows) {
+        function detailChart(rows, pas) {
             var w = 640, h = 190, l = 36, r = 30, t = 12, b = 26;
             var temps = rows.map(function (x) { return x[1]; }).filter(function (v) { return v !== null; });
             if (!temps.length) { return ""; }
             var tmin = Math.floor(Math.min.apply(null, temps)) - 1, tmax = Math.ceil(Math.max.apply(null, temps)) + 1;
-            var rmax = Math.max(2, Math.max.apply(null, rows.map(function (x) { return x[7] || 0; })));
+            var rmax = Math.max(pas === 6 ? 0.5 : 2, Math.max.apply(null, rows.map(function (x) { return x[7] || 0; })));
             var n = rows.length;
             function X(i) { return l + (n > 1 ? i * (w - l - r) / (n - 1) : 0); }
             function Y(v) { return t + (tmax - v) * (h - t - b) / (tmax - tmin); }
             var bars = rows.map(function (x, i) {
                 if (!x[7]) { return ""; }
                 var bh = x[7] / rmax * (h - t - b) * 0.6;
-                return '<rect x="' + (X(i) - 5) + '" y="' + (h - b - bh) + '" width="10" height="' + bh + '" fill="#60a5fa" opacity=".7"><title>' + x[7] + " mm</title></rect>";
+                var bw = Math.max(2, Math.min(10, (w - l - r) / n * 0.8));
+                return '<rect x="' + (X(i) - bw / 2) + '" y="' + (h - b - bh) + '" width="' + bw + '" height="' + bh + '" fill="#60a5fa" opacity=".7"><title>' + x[7] + " mm</title></rect>";
             }).join("");
             var pts = rows.map(function (x, i) { return x[1] === null ? null : X(i).toFixed(1) + "," + Y(x[1]).toFixed(1); }).filter(Boolean).join(" ");
             var ticks = rows.map(function (x, i) {
-                return i % 3 === 0 ? '<text x="' + X(i) + '" y="' + (h - 8) + '" font-size="10" text-anchor="middle" fill="#64748b">' + heureParis(x[0]).replace(":00", " h") + "</text>" : "";
+                var hm = heureParis(x[0]);
+                return (hm.slice(3) === "00" && parseInt(hm.slice(0, 2), 10) % 3 === 0) ? '<text x="' + X(i) + '" y="' + (h - 8) + '" font-size="10" text-anchor="middle" fill="#64748b">' + hm.slice(0, 2) + " h</text>" : "";
             }).join("");
             return '<svg viewBox="0 0 ' + w + " " + h + '" class="clm-detail-chart" role="img" aria-label="Température et précipitations heure par heure">' +
                 '<text x="4" y="' + (t + 8) + '" font-size="10" fill="#dc2626">' + tmax + "°</text>" +
@@ -546,10 +548,20 @@
             var poste = currentStationMeta.num_poste;
             elDetail.hidden = false;
             elDetail.innerHTML = '<p class="clm-detail-msg">Chargement du détail du ' + dateLongue(dateStr) + "…</p>";
-            fetchJson(obsUrl + "/jours/" + dateStr + "/" + poste.slice(0, 2) + ".json").then(function (data) {
+            var dep = poste.slice(0, 2);
+            var pick = function (url) {
+                return fetchJson(url).then(function (d) {
+                    var r = d[poste];
+                    if (!r || !r.length) { throw new Error("vide"); }
+                    return r;
+                });
+            };
+            // Pas de 6 minutes quand la station en dispose (30 derniers jours), sinon relevés horaires.
+            pick(obsUrl + "/jours6m/" + dateStr + "/" + dep + ".json").then(function (r) { return { rows: r, pas: 6 }; }, function () {
+                return pick(obsUrl + "/jours/" + dateStr + "/" + dep + ".json").then(function (r) { return { rows: r, pas: 60 }; });
+            }).then(function (res) {
                 if (token !== detailToken) { return; }
-                var rows = data[poste];
-                if (!rows || !rows.length) { throw new Error("vide"); }
+                var rows = res.rows;
                 var f = function (v, s) { return v === null || v === undefined ? "—" : v + s; };
                 var body = rows.map(function (x) {
                     return "<tr><td>" + heureParis(x[0]) + "</td><td>" + f(x[1], " °C") + "</td><td>" + f(x[2], " °C") + "</td><td>" + f(x[3], " %") + "</td><td>" +
@@ -557,9 +569,9 @@
                         f(x[8], " hPa") + "</td><td>" + f(x[9], " km") + "</td><td>" + (x[10] === null || x[10] === undefined ? "—" : x[10] + " min") + "</td></tr>";
                 }).join("");
                 elDetail.innerHTML = '<div class="clm-detail-head"><h3>' + dateLongue(dateStr) + " — " + currentStationMeta.nom + '</h3><button type="button" class="clm-detail-close" data-clm-detail-close>Fermer ✕</button></div>' +
-                    detailChart(rows) +
-                    '<div class="clm-table-wrap"><table class="clm-table clm-detail-table"><thead><tr><th>Heure</th><th>Temp.</th><th>Rosée</th><th>Humidité</th><th>Vent</th><th>Rafale</th><th>Pluie 1 h</th><th>Pression</th><th>Visib.</th><th>Soleil</th></tr></thead><tbody>' + body + "</tbody></table></div>" +
-                    '<p class="clm-legend">Relevés horaires Météo-France, heure de Paris. Journée UTC (00 h–24 h UTC) : commence à 02 h ou 01 h heure locale.</p>';
+                    detailChart(rows, res.pas) +
+                    '<div class="clm-table-wrap"><table class="clm-table clm-detail-table"><thead><tr><th>Heure</th><th>Temp.</th><th>Rosée</th><th>Humidité</th><th>Vent</th><th>Rafale</th><th>' + (res.pas === 6 ? "Pluie 6 min" : "Pluie 1 h") + '</th><th>Pression</th><th>Visib.</th><th>Soleil</th></tr></thead><tbody>' + body + "</tbody></table></div>" +
+                    '<p class="clm-legend">' + (res.pas === 6 ? "Relevés toutes les 6 minutes" : "Relevés horaires") + ' Météo-France, heure de Paris. Journée UTC (00 h–24 h UTC) : commence à 02 h ou 01 h heure locale.</p>';
                 elDetail.scrollIntoView({ behavior: "smooth", block: "nearest" });
             }).catch(function () {
                 if (token !== detailToken) { return; }
