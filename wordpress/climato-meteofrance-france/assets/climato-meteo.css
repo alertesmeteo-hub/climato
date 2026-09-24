@@ -449,3 +449,8 @@
 .clm-nrm-table tr.clm-nrm-head th.clm-nrm-annee{background:#fff45c}
 .clm-nrm-rec{display:block;font-weight:600}
 .clm-nrm-records small{display:block;font-size:9px;color:#1e3a8a}
+
+/* v1.8.1 — commandes du panneau des normales */
+.clm-nrm-ctrl{display:flex;flex-wrap:wrap;gap:8px 16px;justify-content:center;align-items:center;margin:0 0 10px;color:#0c1f5c;font-size:14px}
+.clm-nrm-ctrl select{margin-left:4px;padding:2px 4px;border:1px solid #8aa79c;border-radius:3px;background:#fff}
+.clm-nrm-ctrl button{padding:2px 12px;border:1px solid #8aa79c;border-radius:3px;background:#f3f3f3;cursor:pointer;font-weight:600}

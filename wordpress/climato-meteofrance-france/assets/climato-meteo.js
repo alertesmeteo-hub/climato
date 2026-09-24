@@ -480,6 +480,12 @@
                 '<h3 class="clm-nrm-titre">Normales et records pour ' + meta.nom + " (" + meta.departement + ")" +
                 (meta.alti !== null && meta.alti !== undefined ? ' <small>(Alt. ' + Math.round(meta.alti) + " m)</small>" : "") + "</h3>" +
                 '<h4 class="clm-nrm-sous">Normales / Moyennes ' + data.periode_normales + "</h4>" +
+                '<div class="clm-nrm-ctrl">' +
+                '<label>Choisir la période des normales : <select disabled><option>' + data.periode_normales.replace("-", " - ") + "</option></select></label> " +
+                '<label>Comparer avec les normales : <select data-clm-nrm-compare>' +
+                '<option value=""' + (compareWithNormales ? "" : " selected") + ">Aucune</option>" +
+                '<option value="' + data.periode_normales + '"' + (compareWithNormales ? " selected" : "") + ">" + data.periode_normales + "</option></select></label> " +
+                '<button type="button" data-clm-nrm-ok>OK</button></div>' +
                 '<div class="clm-graphs">' + normalesChart("temp", months) + normalesChart("pluie", months) + "</div>" +
                 '<div class="clm-table-wrap"><table class="clm-nrm-table"><tbody>' + corps + "</tbody></table></div>" +
                 '<h4 class="clm-nrm-sous">Records' + (data.records_periode ? " <small>( " + data.records_periode + " )</small>" : "") + "</h4>" +
@@ -785,6 +791,18 @@
             var tr = ev.target.closest ? ev.target.closest("tr[data-date]") : null;
             if (tr) { ev.preventDefault(); showDetail(tr.getAttribute("data-date")); }
         });
+        // Liste « Comparer avec les normales » du panneau : « Aucune » ou la période des normales ; même effet que la case à cocher.
+        if (elNormalesPanel) {
+            elNormalesPanel.addEventListener("click", function (ev) {
+                if (!ev.target || !ev.target.hasAttribute || !ev.target.hasAttribute("data-clm-nrm-ok")) { return; }
+                var sel = elNormalesPanel.querySelector("[data-clm-nrm-compare]");
+                if (elCompareToggle && sel) {
+                    elCompareToggle.checked = sel.value !== "";
+                    onCompareToggleChange();
+                }
+            });
+        }
+
         elDetail.addEventListener("click", function (ev) {
             if (ev.target && ev.target.hasAttribute("data-clm-detail-close")) { elDetail.hidden = true; elDetail.innerHTML = ""; }
         });
@@ -938,6 +956,9 @@
 
         function onCompareToggleChange() {
             compareWithNormales = elCompareToggle.checked;
+            if (elNormalesPanel && !elNormalesPanel.hidden && currentStationMeta && normalesCache[currentStationMeta.num_poste]) {
+                renderNormalesPanel();
+            }
             if (compareWithNormales && currentStationMeta) {
                 ensureNormalesLoaded(currentStationMeta.num_poste).then(function () {
                     renderMonth();
