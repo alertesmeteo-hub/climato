@@ -735,10 +735,37 @@
                 bars + '<polyline points="' + pts + '" fill="none" stroke="#dc2626" stroke-width="2"/>' + ticks + "</svg>";
         }
 
+        var detailState = null;
+
+        // Affiche le détail d'un jour au pas demandé (60 = horaire, 6 = toutes les 6 minutes) ; le choix n'apparaît que si les deux existent.
+        function paintDetail(dateStr, pas) {
+            var st = detailState;
+            if (!st || !st.rows[pas]) { return; }
+            var rows = st.rows[pas];
+            var f = function (v, s) { return v === null || v === undefined ? "—" : v + s; };
+            var r0 = function (v) { return v === null || v === undefined ? v : Math.round(v); };
+            var body = rows.map(function (x) {
+                return "<tr><td>" + heureParis(x[0]) + "</td><td>" + f(x[1], " °C") + "</td><td>" + f(x[2], " °C") + "</td><td>" + f(x[3], " %") + "</td><td>" +
+                    ventHtml(x[4], x[5]) + "</td><td>" + f(r0(x[6]), " km/h") + "</td><td>" + f(x[7], " mm") + "</td><td>" +
+                    f(r0(x[8]), " hPa") + "</td><td>" + f(x[9], " km") + "</td><td>" + (x[10] === null || x[10] === undefined ? "—" : x[10] + " min") + "</td></tr>";
+            }).join("");
+            var choix = "";
+            if (st.rows[60] && st.rows[6]) {
+                choix = '<div class="clm-detail-pas">Pas des relevés : ' +
+                    '<button type="button" data-clm-pas="60" class="clm-pas-btn' + (pas === 60 ? " is-on" : "") + '">Horaire</button>' +
+                    '<button type="button" data-clm-pas="6" class="clm-pas-btn' + (pas === 6 ? " is-on" : "") + '">Toutes les 6 minutes</button></div>';
+            }
+            elDetail.innerHTML = '<div class="clm-detail-head"><h3>' + dateLongue(dateStr) + " — " + currentStationMeta.nom + '</h3><button type="button" class="clm-detail-close" data-clm-detail-close>Fermer ✕</button></div>' +
+                choix + detailChart(rows, pas) +
+                '<div class="clm-table-wrap"><table class="clm-table clm-detail-table"><thead><tr><th>Heure</th><th>Temp.</th><th>Rosée</th><th>Humidité</th><th>Vent</th><th>Rafale</th><th>' + (pas === 6 ? "Pluie 6 min" : "Pluie 1 h") + '</th><th>Pression</th><th>Visib.</th><th>Soleil</th></tr></thead><tbody>' + body + "</tbody></table></div>" +
+                '<p class="clm-legend">' + (pas === 6 ? "Relevés toutes les 6 minutes" : "Relevés horaires") + ' Météo-France, heure de Paris. Journée UTC (00 h–24 h UTC) : commence à 02 h ou 01 h heure locale.</p>';
+        }
+
         function showDetail(dateStr) {
             if (!currentStationMeta || !obsUrl) { return; }
             var token = ++detailToken;
             var poste = currentStationMeta.num_poste;
+            detailState = null;
             elDetail.hidden = false;
             elDetail.innerHTML = '<p class="clm-detail-msg">Chargement du détail du ' + dateLongue(dateStr) + " (interrogation de Météo-France, quelques secondes)…</p>";
             var dep = poste.slice(0, 2);
@@ -749,31 +776,24 @@
                     return r;
                 });
             };
-            // Pas de 6 minutes quand la station en dispose (30 derniers jours), sinon relevés horaires.
-            pick(obsUrl + "/jours6m/" + dateStr + "/" + dep + ".json").then(function (r) { return { rows: r, pas: 6 }; }, function () {
-                return pick(obsUrl + "/jours/" + dateStr + "/" + dep + ".json").then(function (r) { return { rows: r, pas: 60 }; }, function () {
-                    // Jour hors archive du VPS : relevés horaires demandés à l'API climatologique de Météo-France.
-                    if (!obsApiUrl) { throw new Error("vide"); }
-                    return fetchJson(obsApiUrl + "/station-jours?station=" + poste + "&debut=" + dateStr + "&fin=" + dateStr).then(function (d) {
-                        var r = d.jours && d.jours[dateStr];
-                        if (!r || !r.length) { throw new Error("vide"); }
-                        return { rows: r, pas: 60 };
-                    });
+            var nul = function () { return null; };
+            // Relevés horaires : archive du VPS, sinon API climatologique de Météo-France (jours hors archive).
+            var horaire = pick(obsUrl + "/jours/" + dateStr + "/" + dep + ".json").catch(function () {
+                if (!obsApiUrl) { throw new Error("vide"); }
+                return fetchJson(obsApiUrl + "/station-jours?station=" + poste + "&debut=" + dateStr + "&fin=" + dateStr).then(function (d) {
+                    var r = d.jours && d.jours[dateStr];
+                    if (!r || !r.length) { throw new Error("vide"); }
+                    return r;
                 });
-            }).then(function (res) {
+            }).catch(nul);
+            // Pas de 6 minutes : option, quand la station en dispose (30 derniers jours).
+            var sixMin = pick(obsUrl + "/jours6m/" + dateStr + "/" + dep + ".json").catch(nul);
+            Promise.all([horaire, sixMin]).then(function (res) {
                 if (token !== detailToken) { return; }
-                var rows = res.rows;
-                var f = function (v, s) { return v === null || v === undefined ? "—" : v + s; };
-                var r0 = function (v) { return v === null || v === undefined ? v : Math.round(v); };
-                var body = rows.map(function (x) {
-                    return "<tr><td>" + heureParis(x[0]) + "</td><td>" + f(x[1], " °C") + "</td><td>" + f(x[2], " °C") + "</td><td>" + f(x[3], " %") + "</td><td>" +
-                        ventHtml(x[4], x[5]) + "</td><td>" + f(r0(x[6]), " km/h") + "</td><td>" + f(x[7], " mm") + "</td><td>" +
-                        f(r0(x[8]), " hPa") + "</td><td>" + f(x[9], " km") + "</td><td>" + (x[10] === null || x[10] === undefined ? "—" : x[10] + " min") + "</td></tr>";
-                }).join("");
-                elDetail.innerHTML = '<div class="clm-detail-head"><h3>' + dateLongue(dateStr) + " — " + currentStationMeta.nom + '</h3><button type="button" class="clm-detail-close" data-clm-detail-close>Fermer ✕</button></div>' +
-                    detailChart(rows, res.pas) +
-                    '<div class="clm-table-wrap"><table class="clm-table clm-detail-table"><thead><tr><th>Heure</th><th>Temp.</th><th>Rosée</th><th>Humidité</th><th>Vent</th><th>Rafale</th><th>' + (res.pas === 6 ? "Pluie 6 min" : "Pluie 1 h") + '</th><th>Pression</th><th>Visib.</th><th>Soleil</th></tr></thead><tbody>' + body + "</tbody></table></div>" +
-                    '<p class="clm-legend">' + (res.pas === 6 ? "Relevés toutes les 6 minutes" : "Relevés horaires") + ' Météo-France, heure de Paris. Journée UTC (00 h–24 h UTC) : commence à 02 h ou 01 h heure locale.</p>';
+                if (!res[0] && !res[1]) { throw new Error("vide"); }
+                detailState = { rows: { 60: res[0], 6: res[1] } };
+                paintDetail(dateStr, res[0] ? 60 : 6);
+                detailState.date = dateStr;
                 elDetail.scrollIntoView({ behavior: "smooth", block: "nearest" });
             }).catch(function () {
                 if (token !== detailToken) { return; }
@@ -781,6 +801,11 @@
                     '<p class="clm-detail-msg">Le détail heure par heure n\'est pas disponible pour ce jour : Météo-France ne publie pas de relevé horaire pour cette station à cette date. Les valeurs quotidiennes du tableau restent celles de Météo-France.</p>';
             });
         }
+
+        elDetail.addEventListener("click", function (ev) {
+            var b = ev.target && ev.target.closest ? ev.target.closest("[data-clm-pas]") : null;
+            if (b && detailState) { paintDetail(detailState.date, parseInt(b.getAttribute("data-clm-pas"), 10)); }
+        });
 
         elTableBody.addEventListener("click", function (ev) {
             var tr = ev.target.closest ? ev.target.closest("tr[data-date]") : null;
