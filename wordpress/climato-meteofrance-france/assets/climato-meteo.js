@@ -95,6 +95,7 @@
 
     function initApp(root) {
         var baseUrl = root.getAttribute("data-base-url");
+        var obsUrl = (root.getAttribute("data-obs-url") || "").replace(/\/$/, "");
         var initialDepartement = root.getAttribute("data-departement") || "";
         var initialStation = root.getAttribute("data-station") || "";
         var initialYear = parseInt(root.getAttribute("data-annee"), 10) || 0;
@@ -116,6 +117,9 @@
         var elNormalesPanel = root.querySelector("[data-clm-normales-panel]");
         var elCompareToggle = root.querySelector("[data-clm-compare-toggle]");
         var elCompareBlock = root.querySelector("[data-clm-compare-block]");
+        var elDetail = root.querySelector("[data-clm-detail]");
+        var recentDays = {};
+        var detailToken = 0;
 
         var departements = {};
         var stationsByDept = {};
@@ -130,6 +134,23 @@
         var showClosedStations = false;
         var showNormalesPanel = false;
         var compareWithNormales = false;
+        var catalogLastDate = "";
+
+        function stationIsActive(station) {
+            if (typeof station.active === "boolean") {
+                return station.active;
+            }
+            // Compatibilité avec les catalogues <= 1.2.0, qui ne publiaient
+            // pas encore le champ `active`. Une station est considérée active
+            // si son dernier relevé date de moins de 730 jours par rapport au
+            // relevé le plus récent du catalogue.
+            if (!station.last_date || !catalogLastDate) {
+                return true;
+            }
+            var last = new Date(station.last_date + "T00:00:00Z");
+            var reference = new Date(catalogLastDate + "T00:00:00Z");
+            return (reference.getTime() - last.getTime()) <= 730 * 86400000;
+        }
 
         function showStatus(message) {
             if (!message) {
@@ -190,12 +211,12 @@
             var all = (stationsByDept[deptCode] || []).slice().sort(function (a, b) {
                 return a.nom.localeCompare(b.nom, "fr");
             });
-            var active = all.filter(function (s) { return s.active; });
+            var active = all.filter(stationIsActive);
 
             var mustShowClosed = !active.length;
             if (selectCode) {
                 var target = all.filter(function (s) { return s.num_poste === selectCode; })[0];
-                if (target && !target.active) {
+                if (target && !stationIsActive(target)) {
                     mustShowClosed = true;
                 }
             }
@@ -206,7 +227,7 @@
 
             elStation.innerHTML = "";
             if (showClosedStations) {
-                var closed = all.filter(function (s) { return !s.active; });
+                var closed = all.filter(function (s) { return !stationIsActive(s); });
                 if (active.length) {
                     var groupActive = document.createElement("optgroup");
                     groupActive.label = "Stations actives";
@@ -233,6 +254,36 @@
             } else if (pool.length) {
                 elStation.value = pool[0].num_poste;
             }
+        }
+
+        // Compléments récents : jours pas encore publiés dans la climatologie quotidienne,
+        // calculés par le VPS à partir des relevés horaires Météo-France (fichier recent/<poste>.json).
+        function ensureRecentLoaded(numPoste) {
+            if (!obsUrl) { return Promise.resolve({}); }
+            return fetchJson(obsUrl + "/recent/" + numPoste + ".json").then(function (data) {
+                var byDate = {};
+                (data.days || []).forEach(function (d) { byDate[d.date] = d; });
+                return byDate;
+            }).catch(function () { return {}; });
+        }
+
+        function lastRecentDate() {
+            var dates = Object.keys(recentDays).sort();
+            return dates.length ? dates[dates.length - 1] : "";
+        }
+
+        var TITRE_MANQUANT = "Donnée manquante : non publiée par Météo-France pour ce jour, ou grandeur non mesurée par cette station";
+
+        // Cellule : valeur officielle, à défaut valeur provisoire issue des relevés horaires, à défaut « — ».
+        function cellHtml(official, provisional, suffix, recentDay) {
+            if (official !== null && official !== undefined) {
+                return "<td>" + fmtValue(official, suffix) + "</td>";
+            }
+            if (provisional !== null && provisional !== undefined) {
+                var partiel = recentDay && recentDay.n < 24 ? " — jour incomplet (" + recentDay.n + " relevés sur 24)" : "";
+                return '<td class="clm-prov" title="Valeur provisoire calculée à partir des relevés horaires' + partiel + '">' + fmtValue(provisional, suffix) + "</td>";
+            }
+            return '<td class="clm-na" title="' + TITRE_MANQUANT + '">—</td>';
         }
 
         function renderEmptyTable(message) {
@@ -276,7 +327,7 @@
                 return Promise.resolve(normalesCache[numPoste]);
             }
             var meta = stationsByCode[numPoste];
-            if (!meta || !meta.has_normales) {
+            if (!meta || meta.has_normales === false) {
                 normalesCache[numPoste] = null;
                 return Promise.resolve(null);
             }
@@ -389,12 +440,17 @@
                 var day = currentDaysByDate[dateStr];
                 var weekday = WEEKDAY_ABBR[new Date(Date.UTC(currentYm.year, currentYm.month - 1, d)).getUTCDay()];
 
-                var tx = day ? day.tx : null;
-                var tn = day ? day.tn : null;
-                var rr = day ? day.rr : null;
-                var insol = day ? day.insol_h : null;
+                var rec = recentDays[dateStr] || null;
+                var txO = day ? day.tx : null;
+                var tnO = day ? day.tn : null;
+                var rrO = day ? day.rr : null;
+                var insolO = day ? day.insol_h : null;
+                var tx = (txO !== null && txO !== undefined) ? txO : (rec ? rec.tx : null);
+                var tn = (tnO !== null && tnO !== undefined) ? tnO : (rec ? rec.tn : null);
+                var rr = (rrO !== null && rrO !== undefined) ? rrO : (rec ? rec.rr : null);
+                var insol = (insolO !== null && insolO !== undefined) ? insolO : (rec ? rec.insol_h : null);
 
-                if (day) {
+                if (day || rec) {
                     anyData = true;
                 }
                 if (tx !== null && tx !== undefined) { sums.tx += tx; counts.tx++; }
@@ -413,11 +469,11 @@
                 });
 
                 rows.push(
-                    "<tr><td>" + weekday + " " + d + "</td>" +
-                    "<td>" + fmtValue(tx, " °C") + "</td>" +
-                    "<td>" + fmtValue(tn, " °C") + "</td>" +
-                    "<td>" + fmtValue(rr, " mm") + "</td>" +
-                    "<td>" + fmtValue(insol, " h") + "</td></tr>"
+                    '<tr class="clm-clic" data-date="' + dateStr + '" tabindex="0" title="Cliquez pour le détail heure par heure"><td>' + weekday + " " + d + "</td>" +
+                    cellHtml(txO, rec ? rec.tx : null, " °C", rec) +
+                    cellHtml(tnO, rec ? rec.tn : null, " °C", rec) +
+                    cellHtml(rrO, rec ? rec.rr : null, " mm", rec) +
+                    cellHtml(insolO, rec ? rec.insol_h : null, " h", rec) + "</tr>"
                 );
             }
 
@@ -438,12 +494,100 @@
             renderCompareBlock(sums, counts);
         }
 
+        function heureParis(iso) {
+            return new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris", hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
+        }
+
+        function dateLongue(dateStr) {
+            var p = dateStr.split("-");
+            var d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]));
+            return WEEKDAY_ABBR[d.getUTCDay()] + " " + (+p[2]) + " " + MONTH_NAMES[+p[1] - 1] + " " + p[0];
+        }
+
+        // Courbe SVG de la température (ligne) et de la pluie horaire (barres).
+        function detailChart(rows) {
+            var w = 640, h = 190, l = 36, r = 30, t = 12, b = 26;
+            var temps = rows.map(function (x) { return x[1]; }).filter(function (v) { return v !== null; });
+            if (!temps.length) { return ""; }
+            var tmin = Math.floor(Math.min.apply(null, temps)) - 1, tmax = Math.ceil(Math.max.apply(null, temps)) + 1;
+            var rmax = Math.max(2, Math.max.apply(null, rows.map(function (x) { return x[7] || 0; })));
+            var n = rows.length;
+            function X(i) { return l + (n > 1 ? i * (w - l - r) / (n - 1) : 0); }
+            function Y(v) { return t + (tmax - v) * (h - t - b) / (tmax - tmin); }
+            var bars = rows.map(function (x, i) {
+                if (!x[7]) { return ""; }
+                var bh = x[7] / rmax * (h - t - b) * 0.6;
+                return '<rect x="' + (X(i) - 5) + '" y="' + (h - b - bh) + '" width="10" height="' + bh + '" fill="#60a5fa" opacity=".7"><title>' + x[7] + " mm</title></rect>";
+            }).join("");
+            var pts = rows.map(function (x, i) { return x[1] === null ? null : X(i).toFixed(1) + "," + Y(x[1]).toFixed(1); }).filter(Boolean).join(" ");
+            var ticks = rows.map(function (x, i) {
+                return i % 3 === 0 ? '<text x="' + X(i) + '" y="' + (h - 8) + '" font-size="10" text-anchor="middle" fill="#64748b">' + heureParis(x[0]).replace(":00", " h") + "</text>" : "";
+            }).join("");
+            return '<svg viewBox="0 0 ' + w + " " + h + '" class="clm-detail-chart" role="img" aria-label="Température et précipitations heure par heure">' +
+                '<text x="4" y="' + (t + 8) + '" font-size="10" fill="#dc2626">' + tmax + "°</text>" +
+                '<text x="4" y="' + (h - b) + '" font-size="10" fill="#dc2626">' + tmin + "°</text>" +
+                bars + '<polyline points="' + pts + '" fill="none" stroke="#dc2626" stroke-width="2"/>' + ticks + "</svg>";
+        }
+
+        function showDetail(dateStr) {
+            if (!currentStationMeta || !obsUrl) { return; }
+            var token = ++detailToken;
+            var poste = currentStationMeta.num_poste;
+            elDetail.hidden = false;
+            elDetail.innerHTML = '<p class="clm-detail-msg">Chargement du détail du ' + dateLongue(dateStr) + "…</p>";
+            fetchJson(obsUrl + "/jours/" + dateStr + "/" + poste.slice(0, 2) + ".json").then(function (data) {
+                if (token !== detailToken) { return; }
+                var rows = data[poste];
+                if (!rows || !rows.length) { throw new Error("vide"); }
+                var f = function (v, s) { return v === null || v === undefined ? "—" : v + s; };
+                var body = rows.map(function (x) {
+                    return "<tr><td>" + heureParis(x[0]) + "</td><td>" + f(x[1], " °C") + "</td><td>" + f(x[2], " °C") + "</td><td>" + f(x[3], " %") + "</td><td>" +
+                        (x[4] !== null && x[4] !== undefined ? x[4] + "° " : "") + f(x[5], " km/h") + "</td><td>" + f(x[6], " km/h") + "</td><td>" + f(x[7], " mm") + "</td><td>" +
+                        f(x[8], " hPa") + "</td><td>" + f(x[9], " km") + "</td><td>" + (x[10] === null || x[10] === undefined ? "—" : x[10] + " min") + "</td></tr>";
+                }).join("");
+                elDetail.innerHTML = '<div class="clm-detail-head"><h3>' + dateLongue(dateStr) + " — " + currentStationMeta.nom + '</h3><button type="button" class="clm-detail-close" data-clm-detail-close>Fermer ✕</button></div>' +
+                    detailChart(rows) +
+                    '<div class="clm-table-wrap"><table class="clm-table clm-detail-table"><thead><tr><th>Heure</th><th>Temp.</th><th>Rosée</th><th>Humidité</th><th>Vent</th><th>Rafale</th><th>Pluie 1 h</th><th>Pression</th><th>Visib.</th><th>Soleil</th></tr></thead><tbody>' + body + "</tbody></table></div>" +
+                    '<p class="clm-legend">Relevés horaires Météo-France, heure de Paris. Journée UTC (00 h–24 h UTC) : commence à 02 h ou 01 h heure locale.</p>';
+                elDetail.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            }).catch(function () {
+                if (token !== detailToken) { return; }
+                elDetail.innerHTML = '<div class="clm-detail-head"><h3>' + dateLongue(dateStr) + '</h3><button type="button" class="clm-detail-close" data-clm-detail-close>Fermer ✕</button></div>' +
+                    '<p class="clm-detail-msg">Le détail heure par heure n\'est pas disponible pour ce jour : l\'archive horaire a démarré le 24/09/2026 et conserve les 120 derniers jours. Les valeurs quotidiennes du tableau restent celles de Météo-France.</p>';
+            });
+        }
+
+        elTableBody.addEventListener("click", function (ev) {
+            var tr = ev.target.closest ? ev.target.closest("tr[data-date]") : null;
+            if (tr) { showDetail(tr.getAttribute("data-date")); }
+        });
+        elTableBody.addEventListener("keydown", function (ev) {
+            if (ev.key !== "Enter" && ev.key !== " ") { return; }
+            var tr = ev.target.closest ? ev.target.closest("tr[data-date]") : null;
+            if (tr) { ev.preventDefault(); showDetail(tr.getAttribute("data-date")); }
+        });
+        elDetail.addEventListener("click", function (ev) {
+            if (ev.target && ev.target.hasAttribute("data-clm-detail-close")) { elDetail.hidden = true; elDetail.innerHTML = ""; }
+        });
+
         function goToYm(target) {
             target = clamp(target, minYm, maxYm);
             currentYm = target;
             var year = target.year;
             var token = ++yearRequestToken;
             var tasks = [ensureYearLoaded(year)];
+            if (currentStationMeta && !currentStationMeta.recentRequested) {
+                currentStationMeta.recentRequested = true;
+                tasks.push(ensureRecentLoaded(currentStationMeta.num_poste).then(function (r) {
+                    recentDays = r;
+                    var last = lastRecentDate();
+                    if (last && last > currentStationMeta.last_date) {
+                        maxYm = dateToYm(last);
+                        populateYearSelect(minYm.year, maxYm.year);
+                        elMeta.textContent = elMeta.textContent.replace(/ au \d{4}-\d{2}-\d{2}.*$/, " au " + currentStationMeta.last_date + " (complété jusqu'au " + last + " par les relevés horaires)");
+                    }
+                }));
+            }
             if (compareWithNormales && currentStationMeta) {
                 tasks.push(ensureNormalesLoaded(currentStationMeta.num_poste));
             }
@@ -463,6 +607,10 @@
             }
             currentStationMeta = meta;
             yearCache = {};
+            recentDays = {};
+            meta.recentRequested = false;
+            elDetail.hidden = true;
+            elDetail.innerHTML = "";
             minYm = dateToYm(meta.first_date);
             maxYm = dateToYm(meta.last_date);
             populateYearSelect(minYm.year, maxYm.year);
@@ -556,12 +704,21 @@
         populateMonthSelect();
         showStatus("Chargement des stations…");
 
+        if (window.CLIMATO_AUTOHEAL && window.CLIMATO_AUTOHEAL.url) {
+            fetch(window.CLIMATO_AUTOHEAL.url, { method: "POST", cache: "no-store" }).catch(function () {});
+        }
+
         Promise.all([
             fetchJson(baseUrl + "/departements.json"),
             fetchJsonGz(baseUrl + "/stations.json.gz")
         ]).then(function (results) {
             departements = results[0];
             var allStations = results[1].stations;
+            allStations.forEach(function (station) {
+                if (station.last_date && station.last_date > catalogLastDate) {
+                    catalogLastDate = station.last_date;
+                }
+            });
             allStations.forEach(function (station) {
                 stationsByCode[station.num_poste] = station;
                 if (!stationsByDept[station.departement]) {
