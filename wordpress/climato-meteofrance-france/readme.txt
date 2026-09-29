@@ -3,7 +3,7 @@ Contributors: alertesmeteo
 Tags: meteo, climatologie, meteo-france, station, tableau, avada
 Requires at least: 5.8
 Requires PHP: 7.4
-Stable tag: 1.9.0
+Stable tag: 1.10.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -32,6 +32,9 @@ Les données proviennent des fichiers publics Météo-France « Données climato
 Exemple : [climato_meteo departement="28" station="28198001"]
 
 == Changelog ==
+
+= 1.10.0 =
+* Lien direct vers une station : ?station=XXXXXXXX (et facultativement &annee=AAAA&mois=M) dans l'adresse de la page ; le département est déduit de la station.
 
 = 1.9.0 =
 * Détail d'une journée : le pas de 6 minutes devient une option (boutons « Horaire » / « Toutes les 6 minutes »), l'affichage par défaut reste horaire.

@@ -3,7 +3,7 @@
  * Plugin Name: Climatologie mensuelle Météo-France — Tableaux
  * Plugin URI: https://github.com/alertesmeteo-hub/climato
  * Description: Tableau de climatologie mensuelle (relevés jour par jour et statistiques du mois) par station officielle Météo-France, pour la France métropolitaine — historique complet depuis l'ouverture de chaque station.
- * Version: 1.9.0
+ * Version: 1.10.0
  * Author: Alertes Météo Hub
  * Requires at least: 5.8
  * Requires PHP: 7.4
@@ -14,8 +14,8 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CLIMATO_VERSION', '1.9.0');
-define('CLIMATO_RELEASE_DATE', '24/09/2026');
+define('CLIMATO_VERSION', '1.10.0');
+define('CLIMATO_RELEASE_DATE', '27/09/2026');
 define('CLIMATO_OPTION_BASE_URL', 'climato_national_data_base_url');
 define(
     'CLIMATO_DEFAULT_BASE_URL',
@@ -216,6 +216,7 @@ function climato_render_settings_page() {
         <h2>Shortcode unique</h2>
         <p><code>[climato_meteo]</code> : tableau du mois en cours pour la station par défaut (Paris-Montsouris).</p>
         <p><code>[climato_meteo departement="28" station="28198001"]</code> : ouvre directement sur une station précise.</p>
+        <p>Lien direct : ajoutez <code>?station=28198001</code> (identifiant Météo-France à 8 chiffres) à l’adresse de la page, éventuellement <code>&amp;annee=2026&amp;mois=9</code>. Le département est choisi automatiquement.</p>
         <p><code>[climato_meteo departement="06" annee="2025" mois="8"]</code> : ouvre sur un département, une année et un mois précis.</p>
         <p>Le visiteur peut ensuite changer de département, de station, de mois et d’année depuis le tableau — jusqu’à l’ouverture de la station (certaines stations parisiennes remontent à 1816).</p>
         <p>Les stations fermées depuis longtemps sont masquées par défaut (case « Afficher aussi les stations fermées » pour les retrouver). Quand Météo-France publie une fiche climatologique pour la station, les normales 1991-2020 et les records sont disponibles via « Normales 1991-2020 et records » et « Comparer avec les normales ».</p>

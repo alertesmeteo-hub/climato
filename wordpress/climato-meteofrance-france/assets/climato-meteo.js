@@ -103,6 +103,27 @@
         var initialYear = parseInt(root.getAttribute("data-annee"), 10) || 0;
         var initialMonth = parseInt(root.getAttribute("data-mois"), 10) || 0;
 
+        // Lien direct vers une station (ex. depuis les classements) :
+        // ?station=75114001[&annee=2026&mois=9]. L'adresse de la page prime sur
+        // les attributs du shortcode ; le département est déduit de la station.
+        // Lu côté navigateur : fonctionne même avec un cache de pages WordPress.
+        var urlParams = null;
+        try { urlParams = new URLSearchParams(window.location.search); } catch (e) { /* navigateur ancien */ }
+        var stationFromUrl = false;
+        if (urlParams) {
+            var qStation = urlParams.get("station") || "";
+            if (/^\d{8}$/.test(qStation)) {
+                initialStation = qStation;
+                stationFromUrl = true;
+            }
+            var qYear = parseInt(urlParams.get("annee"), 10) || 0;
+            var qMonth = parseInt(urlParams.get("mois"), 10) || 0;
+            if (qYear >= 1800 && qYear <= 2100 && qMonth >= 1 && qMonth <= 12) {
+                initialYear = qYear;
+                initialMonth = qMonth;
+            }
+        }
+
         var elDept = root.querySelector("[data-clm-select-departement]");
         var elStation = root.querySelector("[data-clm-select-station]");
         var elMonth = root.querySelector("[data-clm-select-mois]");
@@ -1030,6 +1051,9 @@
                 stationsByDept[station.departement].push(station);
             });
 
+            if (stationFromUrl && stationsByCode[initialStation]) {
+                initialDepartement = stationsByCode[initialStation].departement;
+            }
             var startDept = stationsByDept[initialDepartement] ? initialDepartement : Object.keys(stationsByDept).sort()[0];
             populateDepartementSelect();
             elDept.value = startDept;
