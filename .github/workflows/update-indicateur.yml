@@ -1,0 +1,80 @@
+name: Indicateur thermique
+
+on:
+  workflow_dispatch:
+  schedule:
+    # toutes les 3 h, entre deux compléments SYNOP (:45) ; la prévision Open-Meteo est rafraîchie à chaque passage
+    - cron: "20 */3 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-indicateur
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v5
+
+      - name: Installer Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Installer les dépendances
+        run: python -m pip install --disable-pip-version-check "requests>=2.32,<3" "numpy>=2.2,<3" tzdata
+
+      - name: Extraire les stations du panel (branche data)
+        run: |
+          git clone -q --filter=blob:none --no-checkout --depth 1 -b data "https://github.com/${GITHUB_REPOSITORY}.git" published-data
+          paths=$(python scripts/build_indicateur_thermique.py --print-paths | sed 's#^#/#;s#$#/#')
+          git -C published-data sparse-checkout set --no-cone /stations.json.gz $paths
+          git -C published-data checkout -q data
+          echo "$(ls published-data/stations | wc -l) stations extraites"
+
+      - name: Calculer l'indicateur
+        run: |
+          # Coupures passagères de la source (connexion fermée, 429/5xx, délai dépassé) : jusqu'à 3 tentatives.
+          set -o pipefail
+          for attempt in 1 2 3; do
+            if python scripts/build_indicateur_thermique.py --data-dir published-data --output-dir build/indicateur 2>&1 | tee "$RUNNER_TEMP/tentative.log"; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ] || ! grep -qiE 'RemoteDisconnected|Connection(Error|Reset|refused| aborted)|IncompleteRead|ReadTimeout|ConnectTimeout|ChunkedEncodingError|ProtocolError|Max retries exceeded|Temporary failure in name resolution|SSLError|HTTP ?(Error)?:? ?(429|500|502|503|504)|timed out' "$RUNNER_TEMP/tentative.log"; then
+              echo "::error::Échec (tentative $attempt)"
+              exit 1
+            fi
+            echo "Erreur réseau passagère (tentative $attempt), nouvelle tentative dans 90 s"
+            sleep 90
+          done
+
+      - name: Vérifier la publication
+        run: |
+          python - <<'PY'
+          import json
+          for p in ("france", "occitanie", "66"):
+              d = json.load(open(f"build/indicateur/{p}.json", encoding="utf-8"))
+              assert d["status"] == "ok" and d["panel"]["stations_utilisees"] >= 5, p
+              assert len(d["climatologie"]["tm"]) == 365 and d["annees_recentes"], p
+              print(p, "OK :", d["panel"]["stations_utilisees"], "stations, observé jusqu'au", d["derniere_observation"], ",", len(d["prevision"]["jours"]), "jours de prévision")
+          PY
+
+      - name: Publier la branche indicateur-data
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          publish_dir="$(mktemp -d)"
+          cp -R build/indicateur/. "$publish_dir/"
+          touch "$publish_dir/.nojekyll"
+          git init -q -b indicateur-data "$publish_dir"
+          git -C "$publish_dir" config user.name "github-actions[bot]"
+          git -C "$publish_dir" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C "$publish_dir" add .
+          git -C "$publish_dir" commit -q -m "Indicateur thermique $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git -C "$publish_dir" push -q --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:indicateur-data
