@@ -30,11 +30,13 @@ jobs:
       - name: Installer les dépendances
         run: python -m pip install --disable-pip-version-check "requests>=2.32,<3" "numpy>=2.2,<3" tzdata
 
-      - name: Extraire les stations du panel (branche data)
+      - name: Extraire les stations utiles (branche data)
         run: |
           git clone -q --filter=blob:none --no-checkout --depth 1 -b data "https://github.com/${GITHUB_REPOSITORY}.git" published-data
           paths=$(python scripts/build_indicateur_thermique.py --print-paths | sed 's#^#/#;s#$#/#')
-          git -C published-data sparse-checkout set --no-cone /stations.json.gz $paths
+          # bilan du mois : normales et années récentes de toutes les stations
+          motifs=$(python scripts/build_bilan_mois.py --print-patterns)
+          git -C published-data sparse-checkout set --no-cone /stations.json.gz $paths $motifs
           git -C published-data checkout -q data
           echo "$(ls published-data/stations | wc -l) stations extraites"
 
@@ -54,6 +56,9 @@ jobs:
             sleep 90
           done
 
+      - name: Calculer le bilan du mois
+        run: python scripts/build_bilan_mois.py --data-dir published-data --indicateur-dir build/indicateur --output-dir build/indicateur/bilan
+
       - name: Vérifier la publication
         run: |
           python - <<'PY'
@@ -63,6 +68,9 @@ jobs:
               assert d["status"] == "ok" and d["panel"]["stations_utilisees"] >= 5, p
               assert len(d["climatologie"]["tm"]) == 365 and d["annees_recentes"], p
               print(p, "OK :", d["panel"]["stations_utilisees"], "stations, observé jusqu'au", d["derniere_observation"], ",", len(d["prevision"]["jours"]), "jours de prévision")
+          idx = json.load(open("build/indicateur/bilan/index.json", encoding="utf-8"))
+          assert len(idx["mois"]) >= 12 and max(m["stations"] for m in idx["mois"]) > 1000, idx["mois"]
+          print("Bilan OK :", ", ".join(f'{m["mois"]} ({m["stations"]})' for m in idx["mois"]))
           PY
 
       - name: Publier la branche indicateur-data
