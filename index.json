@@ -1,0 +1,28 @@
+{
+ "schema_version": 1,
+ "pipeline_version": "2.0.0",
+ "generated_at": "2026-10-10T17:24:06Z",
+ "panels": {
+  "france": {
+   "label": "France métropolitaine",
+   "fichier": "france.json",
+   "historique": "france-historique.json",
+   "derniere_observation": "2026-10-09",
+   "stations": 30
+  },
+  "occitanie": {
+   "label": "Occitanie",
+   "fichier": "occitanie.json",
+   "historique": "occitanie-historique.json",
+   "derniere_observation": "2026-10-09",
+   "stations": 15
+  },
+  "66": {
+   "label": "Pyrénées-Orientales",
+   "fichier": "66.json",
+   "historique": "66-historique.json",
+   "derniere_observation": "2026-10-09",
+   "stations": 10
+  }
+ }
+}

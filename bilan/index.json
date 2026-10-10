@@ -1,0 +1,121 @@
+{
+ "schema_version": 1,
+ "pipeline_version": "1.0.0",
+ "generated_at": "2026-10-10T17:24:06Z",
+ "mois": [
+  {
+   "mois": "2026-10",
+   "libelle": "octobre 2026",
+   "en_cours": true,
+   "derniere_donnee": "2026-10-09",
+   "stations": 148
+  },
+  {
+   "mois": "2026-09",
+   "libelle": "septembre 2026",
+   "en_cours": false,
+   "derniere_donnee": "2026-09-30",
+   "stations": 1806
+  },
+  {
+   "mois": "2026-08",
+   "libelle": "août 2026",
+   "en_cours": false,
+   "derniere_donnee": "2026-08-31",
+   "stations": 1868
+  },
+  {
+   "mois": "2026-07",
+   "libelle": "juillet 2026",
+   "en_cours": false,
+   "derniere_donnee": "2026-07-31",
+   "stations": 1869
+  },
+  {
+   "mois": "2026-06",
+   "libelle": "juin 2026",
+   "en_cours": false,
+   "derniere_donnee": "2026-06-30",
+   "stations": 1867
+  },
+  {
+   "mois": "2026-05",
+   "libelle": "mai 2026",
+   "en_cours": false,
+   "derniere_donnee": "2026-05-31",
+   "stations": 1866
+  },
+  {
+   "mois": "2026-04",
+   "libelle": "avril 2026",
+   "en_cours": false,
+   "derniere_donnee": "2026-04-30",
+   "stations": 1875
+  },
+  {
+   "mois": "2026-03",
+   "libelle": "mars 2026",
+   "en_cours": false,
+   "derniere_donnee": "2026-03-31",
+   "stations": 1924
+  },
+  {
+   "mois": "2026-02",
+   "libelle": "février 2026",
+   "en_cours": false,
+   "derniere_donnee": "2026-02-28",
+   "stations": 1942
+  },
+  {
+   "mois": "2026-01",
+   "libelle": "janvier 2026",
+   "en_cours": false,
+   "derniere_donnee": "2026-01-31",
+   "stations": 1937
+  },
+  {
+   "mois": "2025-12",
+   "libelle": "décembre 2025",
+   "en_cours": false,
+   "derniere_donnee": "2025-12-31",
+   "stations": 1897
+  },
+  {
+   "mois": "2025-11",
+   "libelle": "novembre 2025",
+   "en_cours": false,
+   "derniere_donnee": "2025-11-30",
+   "stations": 1867
+  },
+  {
+   "mois": "2025-10",
+   "libelle": "octobre 2025",
+   "en_cours": false,
+   "derniere_donnee": "2025-10-31",
+   "stations": 1869
+  }
+ ],
+ "annees": [
+  {
+   "annee": 2026,
+   "fichier": "annee-2026.json",
+   "en_cours": true,
+   "derniere_donnee": "2026-10-09",
+   "stations": 1866
+  },
+  {
+   "annee": 2025,
+   "fichier": "annee-2025.json",
+   "en_cours": false,
+   "derniere_donnee": "2025-12-31",
+   "stations": 1870
+  },
+  {
+   "annee": 2024,
+   "fichier": "annee-2024.json",
+   "en_cours": false,
+   "derniere_donnee": "2024-12-31",
+   "stations": 1875
+  }
+ ]
+}
