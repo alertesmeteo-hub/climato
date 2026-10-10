@@ -3,7 +3,7 @@ name: Indicateur thermique
 on:
   workflow_dispatch:
   schedule:
-    # toutes les 3 h, entre deux compléments SYNOP (:45) ; la prévision Open-Meteo est rafraîchie à chaque passage
+    # toutes les 3 h, entre deux compléments SYNOP (:45) ; la prévision de nos modèles (ECMWF, AIGEFS) est rafraîchie à chaque passage
     - cron: "20 */3 * * *"
 
 permissions:
@@ -40,12 +40,18 @@ jobs:
           git -C published-data checkout -q data
           echo "$(ls published-data/stations | wc -l) stations extraites"
 
+      - name: Récupérer l'archive de prévision (publication précédente)
+        run: |
+          # échantillons de température des premières heures de chaque prévision : ils servent à corriger le biais de chaque station
+          mkdir -p previous
+          curl -fsS --retry 3 -o previous/archive-modele.json "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/indicateur-data/archive-modele.json" || echo "Pas d'archive précédente : premier calcul."
+
       - name: Calculer l'indicateur
         run: |
           # Coupures passagères de la source (connexion fermée, 429/5xx, délai dépassé) : jusqu'à 3 tentatives.
           set -o pipefail
           for attempt in 1 2 3; do
-            if python scripts/build_indicateur_thermique.py --data-dir published-data --output-dir build/indicateur 2>&1 | tee "$RUNNER_TEMP/tentative.log"; then
+            if python scripts/build_indicateur_thermique.py --data-dir published-data --output-dir build/indicateur --archive-in previous/archive-modele.json 2>&1 | tee "$RUNNER_TEMP/tentative.log"; then
               break
             fi
             if [ "$attempt" -eq 3 ] || ! grep -qiE 'RemoteDisconnected|Connection(Error|Reset|refused| aborted)|IncompleteRead|ReadTimeout|ConnectTimeout|ChunkedEncodingError|ProtocolError|Max retries exceeded|Temporary failure in name resolution|SSLError|HTTP ?(Error)?:? ?(429|500|502|503|504)|timed out' "$RUNNER_TEMP/tentative.log"; then
@@ -67,7 +73,9 @@ jobs:
               d = json.load(open(f"build/indicateur/{p}.json", encoding="utf-8"))
               assert d["status"] == "ok" and d["panel"]["stations_utilisees"] >= 5, p
               assert len(d["climatologie"]["tm"]) == 365 and d["annees_recentes"], p
+              assert sum(1 for j in d["prevision"]["jours"] if "tm" in j) >= 5, (p, "prévision déterministe")
               print(p, "OK :", d["panel"]["stations_utilisees"], "stations, observé jusqu'au", d["derniere_observation"], ",", len(d["prevision"]["jours"]), "jours de prévision")
+          assert len(json.load(open("build/indicateur/archive-modele.json", encoding="utf-8"))["stations"]) >= 30, "archive de prévision"
           idx = json.load(open("build/indicateur/bilan/index.json", encoding="utf-8"))
           assert len(idx["mois"]) >= 12 and max(m["stations"] for m in idx["mois"]) > 1000, idx["mois"]
           print("Bilan OK :", ", ".join(f'{m["mois"]} ({m["stations"]})' for m in idx["mois"]))

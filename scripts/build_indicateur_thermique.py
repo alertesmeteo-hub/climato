@@ -10,8 +10,8 @@ biaise donc pas la valeur (contrairement à une moyenne brute des températures)
 
 Sources :
 - relevés quotidiens Météo-France (branche « data » du dépôt, déjà complétée par les SYNOP récents) ;
-- prévision Open-Meteo (meilleur modèle disponible, débiaisée station par station sur les 10 derniers jours
-  observés) et ensemble ECMWF IFS 0,25° (51 membres) pour l'incertitude à 15 jours.
+- prévision de nos propres modèles (previsions_modeles.py) : ECMWF IFS 0,25°, corrigé de l'altitude et débiaisé station par
+  station sur les 10 derniers jours observés, et fourchette de l'ensemble AIGEFS (NOAA, 31 membres) pour l'incertitude à 15 jours.
 """
 from __future__ import annotations
 
@@ -19,19 +19,18 @@ import argparse
 import gzip
 import json
 import sys
-import time
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from pathlib import Path
 
 import numpy as np
-import requests
 
-PIPELINE_VERSION = "1.0.0"
+import previsions_modeles
+
+PIPELINE_VERSION = "2.0.0"
 FIRST_YEAR = 1950
 NORMALES = (1991, 2020)
 MIN_COVERAGE = 0.6  # part des stations nécessaire pour publier un jour
-UA = "Mozilla/5.0 (compatible; AlertesMeteo-IndicateurThermique/1.0)"
 
 PANELS: dict[str, dict] = {
     "france": {
@@ -114,56 +113,6 @@ def normals_for(series: dict[date, tuple[float | None, float | None]]) -> tuple[
     return res[0], res[1]
 
 
-def get_json(url: str, params: dict) -> object:
-    for attempt in range(5):
-        try:
-            r = requests.get(url, params=params, timeout=(15, 90), headers={"User-Agent": UA})
-            if r.status_code in (429, 500, 502, 503, 504):
-                raise requests.HTTPError(f"HTTP {r.status_code}")
-            r.raise_for_status()
-            return r.json()
-        except (requests.RequestException, ValueError) as exc:
-            if attempt == 4:
-                raise
-            wait = 10 * 2**attempt
-            print(f"Open-Meteo : {exc}, reprise dans {wait} s", flush=True)
-            time.sleep(wait)
-    raise RuntimeError("inaccessible")
-
-
-def fetch_forecasts(meta: dict[str, dict]) -> tuple[dict, dict]:
-    """Prévision déterministe (10 jours passés + 10 à venir) et ensemble ECMWF (15 jours), par station."""
-    ids = list(meta)
-    lat = ",".join(f"{meta[s]['lat']:.4f}" for s in ids)
-    lon = ",".join(f"{meta[s]['lon']:.4f}" for s in ids)
-    elev = ",".join(f"{meta[s]['alti']:.0f}" for s in ids)
-    base = {"latitude": lat, "longitude": lon, "elevation": elev, "timezone": "Europe/Paris", "daily": "temperature_2m_max,temperature_2m_min"}
-    det_raw = get_json("https://api.open-meteo.com/v1/forecast", {**base, "past_days": 10, "forecast_days": 10})
-    det_list = det_raw if isinstance(det_raw, list) else [det_raw]
-    det = {}
-    for sid, block in zip(ids, det_list):
-        d = block["daily"]
-        det[sid] = {date.fromisoformat(t): (n, x) for t, n, x in zip(d["time"], d["temperature_2m_min"], d["temperature_2m_max"])}
-    ens: dict[str, dict] = {}
-    try:
-        ens_raw = get_json("https://ensemble-api.open-meteo.com/v1/ensemble", {**base, "models": "ecmwf_ifs025", "forecast_days": 15})
-        ens_list = ens_raw if isinstance(ens_raw, list) else [ens_raw]
-        for sid, block in zip(ids, ens_list):
-            d = block["daily"]
-            members = sorted(k[len("temperature_2m_max"):] for k in d if k.startswith("temperature_2m_max"))
-            per_day: dict[date, list[tuple[float, float]]] = {}
-            for i, t in enumerate(d["time"]):
-                vals = []
-                for m in members:
-                    x, n = d.get("temperature_2m_max" + m, [None])[i], d.get("temperature_2m_min" + m, [None])[i]
-                    vals.append((n, x))
-                per_day[date.fromisoformat(t)] = vals
-            ens[sid] = per_day
-    except Exception as exc:  # l'ensemble est un plus : son absence ne bloque pas la publication
-        print(f"Ensemble ECMWF indisponible : {exc}", flush=True)
-    return det, ens
-
-
 def r1(v: float | None) -> float | None:
     return None if v is None or not np.isfinite(v) else round(float(v), 1)
 
@@ -220,20 +169,21 @@ def build_panel(pid: str, panel: dict, series: dict, normals: dict, meta: dict, 
         if len(an_n) >= need:
             tn, tx = n_tn[k] + np.mean(an_n), n_tx[k] + np.mean(an_x)
             item.update(tn=r1(tn), tx=r1(tx), tm=r1((tn + tx) / 2))
-        # ensemble : indicateur par membre puis quantiles
-        mem_vals = []
-        n_members = min((len(ens[s][dd]) for s in sids if s in ens and dd in ens[s]), default=0)
-        for m in range(n_members):
+        # ensemble : fourchette (médiane, p10, p90) de chaque station, corrigée du biais puis moyennée sur le panel
+        q: dict[str, float] = {}
+        n_membres = 0
+        for cle in ("p10", "p50", "p90"):
             an = []
             for s in sids:
-                v = ens.get(s, {}).get(dd)
-                if v and v[m][0] is not None and v[m][1] is not None:
-                    an.append(((v[m][0] - bias[s][0] - normals[s][0][k]) + (v[m][1] - bias[s][1] - normals[s][1][k])) / 2)
+                e = ens.get(s, {}).get(dd)
+                if e and cle in e and e[cle][0] is not None and e[cle][1] is not None:
+                    an.append(((e[cle][0] - bias[s][0] - normals[s][0][k]) + (e[cle][1] - bias[s][1] - normals[s][1][k])) / 2)
+                    n_membres = max(n_membres, e.get("n", 0))
             if len(an) >= need:
-                mem_vals.append((n_tn[k] + n_tx[k]) / 2 + float(np.mean(an)))
-        if len(mem_vals) >= 10:
-            q = np.percentile(mem_vals, [10, 50, 90])
-            item.update(ens_p10=r1(q[0]), ens_p50=r1(q[1]), ens_p90=r1(q[2]), ens_n=len(mem_vals))
+                q[cle] = (n_tn[k] + n_tx[k]) / 2 + float(np.mean(an))
+        if len(q) == 3:
+            lo, mid, hi = sorted(q.values())
+            item.update(ens_p10=r1(lo), ens_p50=r1(mid), ens_p90=r1(hi), ens_n=n_membres)
         if "tm" in item or "ens_p50" in item:
             fc.append(item)
 
@@ -320,13 +270,13 @@ def build_panel(pid: str, panel: dict, series: dict, normals: dict, meta: dict, 
         "annees_recentes": {y: years[y] for y in sorted(years)[-2:]},
         "annuel": annual,
         "prevision": {
-            "source": "Open-Meteo (meilleur modèle, débiaisé sur 10 jours d'observations) · ensemble ECMWF IFS 0,25°",
+            "source": "ECMWF IFS 0,25° corrigé de l'altitude et du biais de chaque station sur 10 jours · fourchette de l'ensemble AIGEFS (NOAA, 31 membres)",
             "jours": fc,
         },
         "stations": stations_out,
         "sources": {
             "observations": "Météo-France — Données climatologiques de base quotidiennes et archive SYNOP (Licence Ouverte 2.0)",
-            "prevision": "Open-Meteo.com (CC BY 4.0)",
+            "prevision": "ECMWF (données ouvertes, CC BY 4.0) et NOAA (AIGEFS), traitées par Alertes Météo",
         },
     }
     hist = {"schema_version": 1, "generated_at": now, "panel": pid, "annees": years}
@@ -338,6 +288,8 @@ def main() -> int:
     ap.add_argument("--data-dir", default="published-data")
     ap.add_argument("--output-dir", default="build/indicateur")
     ap.add_argument("--print-paths", action="store_true", help="liste des dossiers de stations à extraire (sparse-checkout)")
+    ap.add_argument("--archive-in", default=None, help="archive-modele.json de la publication précédente (échantillons des premières heures de chaque prévision)")
+    ap.add_argument("--modeles-dir", default=None, help="lit les fichiers modèles dans <dossier>/<dépôt>/<département>.json au lieu de GitHub (tests)")
     args = ap.parse_args()
     if args.print_paths:
         print("\n".join(f"stations/{s}" for s in all_station_ids()))
@@ -361,10 +313,22 @@ def main() -> int:
             normals[s] = nr
     print(f"{len(normals)}/{len(meta)} stations avec normales", flush=True)
 
-    det, ens = fetch_forecasts({s: meta[s] for s in normals})
-    today = datetime.now(ZoneInfo("Europe/Paris")).date()
+    maintenant = datetime.now(timezone.utc)
+    today = maintenant.astimezone(ZoneInfo("Europe/Paris")).date()
+    archive_prec = {}
+    if args.archive_in and Path(args.archive_in).exists():
+        try:
+            archive_prec = previsions_modeles.lire_archive(json.loads(Path(args.archive_in).read_text(encoding="utf-8")))
+        except ValueError:
+            print("archive-modele.json illisible : départ à vide", flush=True)
+    print(f"Prévisions : archive de {len(archive_prec)} stations", flush=True)
+    det, ens, archive = previsions_modeles.prevision_stations({s: meta[s] for s in normals}, today, archive_prec, previsions_modeles.Fichiers(args.modeles_dir), maintenant)
+    print(f"Prévisions : {len(det)} stations déterministes, {len(ens)} avec ensemble", flush=True)
+    if len(det) < max(3, len(normals) // 2):
+        raise RuntimeError("prévisions des modèles indisponibles : indicateur non recalculé")
     out = Path(args.output_dir)
     out.mkdir(parents=True, exist_ok=True)
+    (out / "archive-modele.json").write_text(json.dumps(previsions_modeles.ecrire_archive(archive, maintenant), separators=(",", ":")), encoding="utf-8")
     index = {"schema_version": 1, "pipeline_version": PIPELINE_VERSION, "generated_at": None, "panels": {}}
     for pid, panel in PANELS.items():
         head, hist = build_panel(pid, panel, series, normals, meta, det, ens, today)
